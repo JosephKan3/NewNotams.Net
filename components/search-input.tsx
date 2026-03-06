@@ -39,6 +39,7 @@ const DEFAULT_PARAMS: SearchParams = {
 }
 
 export function SearchInput({ onSearch, isLoading }: SearchInputProps) {
+  const METAR_CURRENT = "current"
   const [params, setParams] = useState<SearchParams>(DEFAULT_PARAMS)
   const [inputValue, setInputValue] = useState("")
   const [radiusEnabled, setRadiusEnabled] = useState(false)
@@ -230,16 +231,16 @@ export function SearchInput({ onSearch, isLoading }: SearchInputProps) {
           />
           <Label htmlFor="metar-toggle" className="text-sm">METAR</Label>
           <Select
-            value={params.metarHours}
+            value={params.metarHours || METAR_CURRENT}
             onValueChange={(value) =>
-              setParams(prev => ({ ...prev, metarHours: value }))
+              setParams(prev => ({ ...prev, metarHours: value === METAR_CURRENT ? "" : value }))
             }
           >
             <SelectTrigger className="w-36 h-8">
               <SelectValue placeholder="0H (Current)" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">0H (Current Data Only)</SelectItem>
+              <SelectItem value={METAR_CURRENT}>0H (Current Data Only)</SelectItem>
               <SelectItem value="1">1H</SelectItem>
               <SelectItem value="2">2H</SelectItem>
               <SelectItem value="3">3H</SelectItem>
