@@ -38,8 +38,24 @@ const DEFAULT_PARAMS: SearchParams = {
   showDuplicates: false,
 }
 
+const METAR_HOURS_OPTIONS = [
+  { value: "0", label: "0H (Current Data Only)" },
+  { value: "1", label: "1H" },
+  { value: "2", label: "2H" },
+  { value: "3", label: "3H" },
+  { value: "4", label: "4H" },
+  { value: "5", label: "5H" },
+  { value: "6", label: "6H" },
+] as const
+
+const NOTAM_LANGUAGE_OPTIONS = [
+  { value: "default", label: "EN+FR" },
+  { value: "english", label: "EN" },
+  { value: "french", label: "FR" },
+] as const
+
 export function SearchInput({ onSearch, isLoading }: SearchInputProps) {
-  const [params, setParams] = useState<SearchParams>(() => DEFAULT_PARAMS)
+  const [params, setParams] = useState<SearchParams>(DEFAULT_PARAMS)
   const [inputValue, setInputValue] = useState("")
   const [radiusEnabled, setRadiusEnabled] = useState(false)
   const [radiusValue, setRadiusValue] = useState("10")
@@ -215,9 +231,11 @@ export function SearchInput({ onSearch, isLoading }: SearchInputProps) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="default">EN+FR</SelectItem>
-              <SelectItem value="english">EN</SelectItem>
-              <SelectItem value="french">FR</SelectItem>
+              {NOTAM_LANGUAGE_OPTIONS.map(opt => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -239,13 +257,11 @@ export function SearchInput({ onSearch, isLoading }: SearchInputProps) {
               <SelectValue placeholder="0H (Current)" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="0">0H (Current Data Only)</SelectItem>
-              <SelectItem value="1">1H</SelectItem>
-              <SelectItem value="2">2H</SelectItem>
-              <SelectItem value="3">3H</SelectItem>
-              <SelectItem value="4">4H</SelectItem>
-              <SelectItem value="5">5H</SelectItem>
-              <SelectItem value="6">6H</SelectItem>
+              {METAR_HOURS_OPTIONS.map(opt => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
