@@ -33,7 +33,7 @@ export default function Home() {
         queryParams.append("site", site)
       })
 
-      // Add products
+      // Add text products
       if (params.products.sigmet) queryParams.append("alpha", "sigmet")
       if (params.products.airmet) queryParams.append("alpha", "airmet")
       if (params.products.notam) queryParams.append("alpha", "notam")
@@ -42,6 +42,59 @@ export default function Home() {
       if (params.products.pirep) queryParams.append("alpha", "pirep")
       if (params.products.upperwind) queryParams.append("alpha", "upperwind")
       if (params.products.space_weather) queryParams.append("alpha", "space_weather")
+
+      // BC VFR Route Forecast
+      if (params.products.bc_vfr_route) queryParams.append("alpha", "bc_vfr_route")
+
+      // Analysis charts
+      if (params.products.analysis_250) queryParams.append("alpha", "analysis_250")
+      if (params.products.analysis_500_thickness) queryParams.append("alpha", "analysis_500_thickness")
+      if (params.products.analysis_500_vorticity) queryParams.append("alpha", "analysis_500_vorticity")
+      if (params.products.analysis_700) queryParams.append("alpha", "analysis_700")
+      if (params.products.analysis_850) queryParams.append("alpha", "analysis_850")
+      if (params.products.analysis_surface) queryParams.append("alpha", "analysis_surface")
+
+      // Radar - National
+      if (params.products.radar_national_echotop) queryParams.append("alpha", "radar_national_echotop")
+      if (params.products.radar_national_cappi_rain) queryParams.append("alpha", "radar_national_cappi_rain")
+      if (params.products.radar_national_cappi_snow) queryParams.append("alpha", "radar_national_cappi_snow")
+      // Radar - Regional
+      if (params.products.radar_regional_echotop) queryParams.append("alpha", "radar_regional_echotop")
+      if (params.products.radar_regional_cappi_rain) queryParams.append("alpha", "radar_regional_cappi_rain")
+      if (params.products.radar_regional_cappi_snow) queryParams.append("alpha", "radar_regional_cappi_snow")
+      // Radar - Individual
+      if (params.products.radar_individual_echotop) queryParams.append("alpha", "radar_individual_echotop")
+      if (params.products.radar_individual_cappi_rain) queryParams.append("alpha", "radar_individual_cappi_rain")
+      if (params.products.radar_individual_cappi_snow) queryParams.append("alpha", "radar_individual_cappi_snow")
+
+      // Satellite
+      if (params.products.satellite_infrared) queryParams.append("alpha", "satellite_infrared")
+      if (params.products.satellite_visible) queryParams.append("alpha", "satellite_visible")
+      if (params.products.satellite_yukon_nwt) queryParams.append("alpha", "satellite_yukon_nwt")
+
+      // Graphical Forecast
+      if (params.products.gfa_clouds_weather) queryParams.append("alpha", "gfa_clouds_weather")
+      if (params.products.gfa_icing_turb_freezing) queryParams.append("alpha", "gfa_icing_turb_freezing")
+      if (params.products.gfa_local_bc) queryParams.append("alpha", "gfa_local_bc")
+
+      // Significant Weather
+      if (params.products.sigwx_high) queryParams.append("alpha", "sigwx_high")
+      if (params.products.sigwx_mid) queryParams.append("alpha", "sigwx_mid")
+      if (params.products.sigwx_surface) queryParams.append("alpha", "sigwx_surface")
+
+      // Turbulence
+      if (params.products.turb_all) queryParams.append("alpha", "turb_all")
+
+      // Wind levels
+      if (params.products.wind_3000) queryParams.append("alpha", "wind_3000")
+      if (params.products.wind_6000) queryParams.append("alpha", "wind_6000")
+      if (params.products.wind_9000) queryParams.append("alpha", "wind_9000")
+      if (params.products.wind_12000) queryParams.append("alpha", "wind_12000")
+      if (params.products.wind_fl180) queryParams.append("alpha", "wind_fl180")
+      if (params.products.wind_fl240) queryParams.append("alpha", "wind_fl240")
+      if (params.products.wind_fl340) queryParams.append("alpha", "wind_fl340")
+      if (params.products.wind_fl390) queryParams.append("alpha", "wind_fl390")
+      if (params.products.wind_fl450) queryParams.append("alpha", "wind_fl450")
 
       // Add NOTAM language
       if (params.products.notam) {

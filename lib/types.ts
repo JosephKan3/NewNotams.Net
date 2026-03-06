@@ -1,5 +1,5 @@
 export interface WeatherData {
-  type: "notam" | "metar" | "taf" | "sigmet" | "airmet" | "pirep" | "upperwind" | "space_weather"
+  type: string
   pk: string
   location: string
   startValidity: string
@@ -24,6 +24,7 @@ export interface WeatherResponse {
 export interface SearchParams {
   sites: string[]
   products: {
+    // Text products
     sigmet: boolean
     airmet: boolean
     notam: boolean
@@ -32,6 +33,49 @@ export interface SearchParams {
     pirep: boolean
     upperwind: boolean
     space_weather: boolean
+    // BC VFR Route Forecast
+    bc_vfr_route: boolean
+    // Analysis charts
+    analysis_250: boolean
+    analysis_500_thickness: boolean
+    analysis_500_vorticity: boolean
+    analysis_700: boolean
+    analysis_850: boolean
+    analysis_surface: boolean
+    // Radar
+    radar_national_echotop: boolean
+    radar_national_cappi_rain: boolean
+    radar_national_cappi_snow: boolean
+    radar_regional_echotop: boolean
+    radar_regional_cappi_rain: boolean
+    radar_regional_cappi_snow: boolean
+    radar_individual_echotop: boolean
+    radar_individual_cappi_rain: boolean
+    radar_individual_cappi_snow: boolean
+    // Satellite
+    satellite_infrared: boolean
+    satellite_visible: boolean
+    satellite_yukon_nwt: boolean
+    // Graphical Forecast
+    gfa_clouds_weather: boolean
+    gfa_icing_turb_freezing: boolean
+    gfa_local_bc: boolean
+    // Significant Weather
+    sigwx_high: boolean
+    sigwx_mid: boolean
+    sigwx_surface: boolean
+    // Turbulence
+    turb_all: boolean
+    // Wind levels
+    wind_3000: boolean
+    wind_6000: boolean
+    wind_9000: boolean
+    wind_12000: boolean
+    wind_fl180: boolean
+    wind_fl240: boolean
+    wind_fl340: boolean
+    wind_fl390: boolean
+    wind_fl450: boolean
   }
   notamLanguage: "default" | "english" | "french"
   metarHours: string
