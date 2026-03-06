@@ -41,7 +41,24 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const data = await response.json()
+    const contentType = response.headers.get("content-type")
+    if (!contentType || !contentType.includes("application/json")) {
+      return NextResponse.json(
+        { error: "Invalid response from Nav Canada API" },
+        { status: 502 }
+      )
+    }
+
+    const text = await response.text()
+    let data
+    try {
+      data = JSON.parse(text)
+    } catch {
+      return NextResponse.json(
+        { error: "Failed to parse response from Nav Canada API" },
+        { status: 502 }
+      )
+    }
     
     return NextResponse.json(data)
   } catch (error) {
