@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useCallback, type KeyboardEvent } from "react"
-
 import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,8 +14,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import type { SearchParams } from "@/lib/types"
-
-const METAR_CURRENT = "current"
 
 interface SearchInputProps {
   onSearch: (params: SearchParams) => void
@@ -36,7 +33,7 @@ const DEFAULT_PARAMS: SearchParams = {
     space_weather: true,
   },
   notamLanguage: "default",
-  metarHours: METAR_CURRENT,
+  metarHours: "0",
   routeRadius: null,
   showDuplicates: false,
 }
@@ -242,7 +239,7 @@ export function SearchInput({ onSearch, isLoading }: SearchInputProps) {
               <SelectValue placeholder="0H (Current)" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={METAR_CURRENT}>0H (Current Data Only)</SelectItem>
+              <SelectItem value="0">0H (Current Data Only)</SelectItem>
               <SelectItem value="1">1H</SelectItem>
               <SelectItem value="2">2H</SelectItem>
               <SelectItem value="3">3H</SelectItem>
