@@ -39,7 +39,7 @@ const DEFAULT_PARAMS: SearchParams = {
 }
 
 export function SearchInput({ onSearch, isLoading }: SearchInputProps) {
-  const [params, setParams] = useState<SearchParams>(DEFAULT_PARAMS)
+  const [params, setParams] = useState<SearchParams>(() => DEFAULT_PARAMS)
   const [inputValue, setInputValue] = useState("")
   const [radiusEnabled, setRadiusEnabled] = useState(false)
   const [radiusValue, setRadiusValue] = useState("10")
