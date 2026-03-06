@@ -6,16 +6,18 @@ export async function GET(request: NextRequest) {
   // Build the URL for Nav Canada API
   const url = new URL("https://plan.navcanada.ca/weather/api/alpha/")
   
+  // Track keys we've already processed (for multi-value params)
+  const processedKeys = new Set<string>()
+  
   // Forward all query parameters
   searchParams.forEach((value, key) => {
-    if (key === "site") {
-      // site can have multiple values
-      const sites = searchParams.getAll("site")
-      sites.forEach(site => url.searchParams.append("site", site))
-    } else if (key === "alpha") {
-      // alpha can have multiple values
-      const alphas = searchParams.getAll("alpha")
-      alphas.forEach(alpha => url.searchParams.append("alpha", alpha))
+    if (processedKeys.has(key)) return
+    
+    if (key === "site" || key === "alpha") {
+      // These can have multiple values
+      const values = searchParams.getAll(key)
+      values.forEach(v => url.searchParams.append(key, v))
+      processedKeys.add(key)
     } else {
       url.searchParams.set(key, value)
     }
