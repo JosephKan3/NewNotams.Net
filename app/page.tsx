@@ -48,8 +48,8 @@ export default function Home() {
         queryParams.set("notam_choice", params.notamLanguage)
       }
 
-      // Add METAR hours
-      if (params.products.metar && params.metarHours) {
+      // Add METAR hours (only if not "current" which means use current data only)
+      if (params.products.metar && params.metarHours && params.metarHours !== "current") {
         queryParams.set("metar_choice", params.metarHours)
       }
 

@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/select"
 import type { SearchParams } from "@/lib/types"
 
+const METAR_CURRENT = "current"
+
 interface SearchInputProps {
   onSearch: (params: SearchParams) => void
   isLoading: boolean
@@ -33,13 +35,12 @@ const DEFAULT_PARAMS: SearchParams = {
     space_weather: true,
   },
   notamLanguage: "default",
-  metarHours: "",
+  metarHours: METAR_CURRENT,
   routeRadius: null,
   showDuplicates: false,
 }
 
 export function SearchInput({ onSearch, isLoading }: SearchInputProps) {
-  const METAR_CURRENT = "current"
   const [params, setParams] = useState<SearchParams>(DEFAULT_PARAMS)
   const [inputValue, setInputValue] = useState("")
   const [radiusEnabled, setRadiusEnabled] = useState(false)
@@ -231,9 +232,9 @@ export function SearchInput({ onSearch, isLoading }: SearchInputProps) {
           />
           <Label htmlFor="metar-toggle" className="text-sm">METAR</Label>
           <Select
-            value={params.metarHours || METAR_CURRENT}
+            value={params.metarHours}
             onValueChange={(value) =>
-              setParams(prev => ({ ...prev, metarHours: value === METAR_CURRENT ? "" : value }))
+              setParams(prev => ({ ...prev, metarHours: value }))
             }
           >
             <SelectTrigger className="w-36 h-8">
