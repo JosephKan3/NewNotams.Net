@@ -1,13 +1,13 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Eye, EyeOff, RotateCcw, X } from "lucide-react"
+import { Eye, EyeOff, RotateCcw, X, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import type { WeatherData, WeatherResponse } from "@/lib/types"
-import { parseNotamText, parseNotamId } from "@/lib/types"
+import { parseNotamText, parseNotamId, PRODUCT_LABELS, TEXT_PRODUCT_TYPES } from "@/lib/types"
 
 interface ResultsDisplayProps {
   data: WeatherResponse | null
@@ -18,18 +18,31 @@ interface ResultsDisplayProps {
   isDismissed: (id: string) => boolean
 }
 
-const PRODUCT_LABELS: Record<string, string> = {
-  notam: "NOTAM",
-  metar: "METAR",
-  taf: "TAF",
-  sigmet: "SIGMET",
-  airmet: "AIRMET",
-  pirep: "PIREP",
-  upperwind: "Upper Wind",
-  space_weather: "Space Weather",
-}
-
-const PRODUCT_ORDER = ["sigmet", "airmet", "notam", "metar", "taf", "pirep", "upperwind", "space_weather"]
+// Order for displaying products
+const PRODUCT_ORDER = [
+  // Text products first
+  "sigmet",
+  "airmet",
+  "notam",
+  "metar",
+  "taf",
+  "pirep",
+  "upperwind",
+  "space_weather",
+  "vfr_route",
+  // Then image products
+  "upper_analysis",
+  "surface_analysis",
+  "composite_radar",
+  "radar",
+  "satellite",
+  "gfa",
+  "lgf",
+  "sig_wx",
+  "turbulence",
+  "low_level_wind",
+  "high_level_wind",
+]
 
 function NotamCard({
   item,
@@ -91,6 +104,55 @@ function WeatherCard({ item }: { item: WeatherData }) {
         <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
           {item.text}
         </pre>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ImageCard({ item }: { item: WeatherData }) {
+  const imageUrl = item.src || item.image || item.text
+  
+  // Handle cases where the image URL might be relative
+  const fullImageUrl = imageUrl.startsWith("http") 
+    ? imageUrl 
+    : `https://plan.navcanada.ca${imageUrl.startsWith("/") ? "" : "/"}${imageUrl}`
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="font-mono">
+              {item.location || item.type}
+            </Badge>
+            {item.startValidity && (
+              <span className="text-xs text-muted-foreground">
+                Valid: {new Date(item.startValidity).toLocaleString()}
+              </span>
+            )}
+          </div>
+          <a
+            href={fullImageUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted-foreground hover:text-foreground"
+            title="Open in new tab"
+          >
+            <ExternalLink className="h-4 w-4" />
+          </a>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="relative overflow-hidden rounded-md bg-muted">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={fullImageUrl}
+            alt={`${item.type} - ${item.location || "Weather Chart"}`}
+            className="w-full h-auto"
+            loading="lazy"
+            crossOrigin="anonymous"
+          />
+        </div>
       </CardContent>
     </Card>
   )
@@ -161,6 +223,45 @@ function DismissedNotamsSection({
   )
 }
 
+// Helper to determine if a product type is an image type
+function isImageType(type: string): boolean {
+  const imageTypes = [
+    "upper_analysis",
+    "surface_analysis",
+    "composite_radar",
+    "radar",
+    "satellite",
+    "gfa",
+    "lgf",
+    "sig_wx",
+    "turbulence",
+    "low_level_wind",
+    "high_level_wind",
+  ]
+  const lowerType = type.toLowerCase().replace(/-/g, "_")
+  return imageTypes.some(t => lowerType.includes(t) || lowerType === t)
+}
+
+// Helper to normalize product type for grouping
+function normalizeProductType(type: string): string {
+  const lowerType = type.toLowerCase()
+  
+  // Map various API response types to our display categories
+  if (lowerType.includes("upper_analysis") || lowerType.includes("upperanalysis")) return "upper_analysis"
+  if (lowerType.includes("surface_analysis") || lowerType.includes("surfaceanalysis")) return "surface_analysis"
+  if (lowerType.includes("composite_radar") || lowerType.includes("compositeradar")) return "composite_radar"
+  if (lowerType === "radar" || lowerType.startsWith("radar/")) return "radar"
+  if (lowerType.includes("satellite")) return "satellite"
+  if (lowerType === "gfa" || lowerType.startsWith("gfa/")) return "gfa"
+  if (lowerType === "lgf" || lowerType.startsWith("lgf/")) return "lgf"
+  if (lowerType.includes("sig_wx") || lowerType.includes("sigwx")) return "sig_wx"
+  if (lowerType.includes("turbulence")) return "turbulence"
+  if (lowerType.includes("low_level_wind") || lowerType.includes("lowlevelwind")) return "low_level_wind"
+  if (lowerType.includes("high_level_wind") || lowerType.includes("highlevelwind")) return "high_level_wind"
+  
+  return type
+}
+
 export function ResultsDisplay({
   data,
   dismissedIds,
@@ -176,11 +277,11 @@ export function ResultsDisplay({
     const groups: Record<string, WeatherData[]> = {}
     
     for (const item of data.data) {
-      const type = item.type
-      if (!groups[type]) {
-        groups[type] = []
+      const normalizedType = normalizeProductType(item.type)
+      if (!groups[normalizedType]) {
+        groups[normalizedType] = []
       }
-      groups[type].push(item)
+      groups[normalizedType].push(item)
     }
     
     return groups
@@ -230,19 +331,33 @@ export function ResultsDisplay({
     )
   }
 
+  // Get all product types that have data, sorted by PRODUCT_ORDER
+  const productTypes = Object.keys(grouped).sort((a, b) => {
+    const aIndex = PRODUCT_ORDER.indexOf(a)
+    const bIndex = PRODUCT_ORDER.indexOf(b)
+    if (aIndex === -1 && bIndex === -1) return a.localeCompare(b)
+    if (aIndex === -1) return 1
+    if (bIndex === -1) return -1
+    return aIndex - bIndex
+  })
+
   return (
     <div className="space-y-6">
       {/* Summary */}
       <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
         <span>Results:</span>
-        {Object.entries(data.meta.count).map(([type, count]) => (
-          <Badge key={type} variant="outline">
-            {PRODUCT_LABELS[type] || type}: {type === "notam" ? visibleNotamCount : count}
-            {type === "notam" && dismissedNotams.length > 0 && (
-              <span className="ml-1 opacity-60">({dismissedNotams.length} hidden)</span>
-            )}
-          </Badge>
-        ))}
+        {Object.entries(data.meta.count).map(([type, count]) => {
+          const normalizedType = normalizeProductType(type)
+          const label = PRODUCT_LABELS[normalizedType] || PRODUCT_LABELS[type] || type
+          return (
+            <Badge key={type} variant="outline">
+              {label}: {type === "notam" ? visibleNotamCount : count}
+              {type === "notam" && dismissedNotams.length > 0 && (
+                <span className="ml-1 opacity-60">({dismissedNotams.length} hidden)</span>
+              )}
+            </Badge>
+          )
+        })}
       </div>
 
       {/* Dismissed NOTAMs Section */}
@@ -253,21 +368,24 @@ export function ResultsDisplay({
       />
 
       {/* Results by Product Type */}
-      {PRODUCT_ORDER.map(type => {
+      {productTypes.map(type => {
         const items = grouped[type]
         if (!items || items.length === 0) return null
+
+        const label = PRODUCT_LABELS[type] || type
+        const isImage = isImageType(type)
 
         return (
           <section key={type} className="space-y-3">
             <h2 className="text-lg font-semibold border-b border-border pb-2">
-              {PRODUCT_LABELS[type] || type}
+              {label}
               {type === "notam" && (
                 <span className="ml-2 text-sm font-normal text-muted-foreground">
                   ({visibleNotamCount} visible)
                 </span>
               )}
             </h2>
-            <div className="grid gap-3">
+            <div className={isImage ? "grid gap-4 md:grid-cols-2" : "grid gap-3"}>
               {items.map((item, index) => {
                 if (type === "notam") {
                   const parsed = parseNotamText(item.text)
@@ -281,6 +399,11 @@ export function ResultsDisplay({
                     />
                   )
                 }
+                
+                if (isImage) {
+                  return <ImageCard key={`${item.pk}-${index}`} item={item} />
+                }
+                
                 return <WeatherCard key={`${item.pk}-${index}`} item={item} />
               })}
             </div>

@@ -10,6 +10,9 @@ export interface WeatherData {
     pointReference: string
     radialDistance: number
   }
+  // For image products
+  image?: string
+  src?: string
 }
 
 export interface WeatherResponse {
@@ -90,6 +93,59 @@ export interface NotamParsed {
   french: string | null
 }
 
+// Text product types
+export const TEXT_PRODUCT_TYPES = [
+  "sigmet",
+  "airmet",
+  "notam",
+  "metar",
+  "taf",
+  "pirep",
+  "upperwind",
+  "space_weather",
+  "vfr_route",
+] as const
+
+// Image product types
+export const IMAGE_PRODUCT_TYPES = [
+  "upper_analysis",
+  "surface_analysis",
+  "composite_radar",
+  "radar",
+  "satellite",
+  "gfa",
+  "lgf",
+  "sig_wx",
+  "turbulence",
+  "low_level_wind",
+  "high_level_wind",
+] as const
+
+export const PRODUCT_LABELS: Record<string, string> = {
+  // Text products
+  notam: "NOTAM",
+  metar: "METAR",
+  taf: "TAF",
+  sigmet: "SIGMET",
+  airmet: "AIRMET",
+  pirep: "PIREP",
+  upperwind: "Upper Wind",
+  space_weather: "Space Weather",
+  vfr_route: "BC VFR Route Forecast",
+  // Image products
+  upper_analysis: "Upper Analysis",
+  surface_analysis: "Surface Analysis",
+  composite_radar: "Composite Radar",
+  radar: "Radar",
+  satellite: "Satellite",
+  gfa: "Graphical Area Forecast",
+  lgf: "Local Graphical Forecast (BC)",
+  sig_wx: "Significant Weather",
+  turbulence: "Turbulence",
+  low_level_wind: "Low Level Wind",
+  high_level_wind: "High Level Wind",
+}
+
 export function parseNotamId(text: string): string | null {
   try {
     const parsed = JSON.parse(text)
@@ -116,4 +172,13 @@ export function parseNotamText(text: string): NotamParsed | null {
   } catch {
     return null
   }
+}
+
+export function isTextProduct(type: string): boolean {
+  return TEXT_PRODUCT_TYPES.includes(type as typeof TEXT_PRODUCT_TYPES[number])
+}
+
+export function isImageProduct(type: string): boolean {
+  const lowerType = type.toLowerCase()
+  return IMAGE_PRODUCT_TYPES.some(t => lowerType.includes(t.replace(/_/g, "")))
 }
