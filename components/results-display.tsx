@@ -110,12 +110,10 @@ function WeatherCard({ item }: { item: WeatherData }) {
 }
 
 function ImageCard({ item }: { item: WeatherData }) {
-  const imageUrl = item.src || item.image || item.text
-  
-  // Handle cases where the image URL might be relative
-  const fullImageUrl = imageUrl.startsWith("http") 
-    ? imageUrl 
-    : `https://plan.navcanada.ca${imageUrl.startsWith("/") ? "" : "/"}${imageUrl}`
+  // The API returns a pk/code that maps to an image URL
+  // Format: https://plan.navcanada.ca/weather/images/{code}.image
+  const imageCode = item.pk || item.text
+  const fullImageUrl = `https://plan.navcanada.ca/weather/images/${imageCode}.image`
 
   return (
     <Card>
@@ -150,7 +148,6 @@ function ImageCard({ item }: { item: WeatherData }) {
             alt={`${item.type} - ${item.location || "Weather Chart"}`}
             className="w-full h-auto"
             loading="lazy"
-            crossOrigin="anonymous"
           />
         </div>
       </CardContent>
