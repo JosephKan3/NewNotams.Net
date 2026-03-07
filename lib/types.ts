@@ -1,3 +1,25 @@
+export interface ImageFrame {
+  id: number
+  sv: string // start validity
+  ev: string // end validity
+  images: { id: number; created: string }[]
+}
+
+export interface FrameList {
+  id: number
+  sv: string
+  ev: string
+  frames: ImageFrame[]
+}
+
+export interface ImageProductData {
+  product: string
+  sub_product: string
+  geography: string
+  sub_geography: string
+  frame_lists: FrameList[]
+}
+
 export interface WeatherData {
   type: string
   pk: string
@@ -10,6 +32,8 @@ export interface WeatherData {
     pointReference: string
     radialDistance: number
   }
+  // For image products - parsed from text JSON
+  imageData?: ImageProductData
 }
 
 export interface WeatherResponse {
@@ -90,6 +114,68 @@ export interface NotamParsed {
   french: string | null
 }
 
+// Text product types
+export const TEXT_PRODUCT_TYPES = [
+  "sigmet",
+  "airmet",
+  "notam",
+  "metar",
+  "taf",
+  "pirep",
+  "upperwind",
+  "space_weather",
+  "vfr_route",
+] as const
+
+// Image product types
+export const IMAGE_PRODUCT_TYPES = [
+  "upper_analysis",
+  "surface_analysis",
+  "composite_radar",
+  "radar",
+  "satellite",
+  "gfa",
+  "lgf",
+  "sig_wx",
+  "turbulence",
+  "low_level_wind",
+  "high_level_wind",
+] as const
+
+export const PRODUCT_LABELS: Record<string, string> = {
+  // Text products
+  notam: "NOTAM",
+  metar: "METAR",
+  taf: "TAF",
+  sigmet: "SIGMET",
+  airmet: "AIRMET",
+  pirep: "PIREP",
+  upperwind: "Upper Wind",
+  space_weather: "Space Weather",
+  vfr_route: "BC VFR Route Forecast",
+  // Image products
+  upper_analysis: "Upper Analysis",
+  surface_analysis: "Surface Analysis",
+  composite_radar: "Composite Radar",
+  radar: "Radar",
+  satellite: "Satellite",
+  gfa: "Graphical Area Forecast",
+  lgf: "Local Graphical Forecast (BC)",
+  sig_wx: "Significant Weather",
+  turbulence: "Turbulence",
+  low_level_wind: "Low Level Wind",
+  high_level_wind: "High Level Wind",
+  LOW_LEVEL_WIND: "Low Level Wind",
+  HIGH_LEVEL_WIND: "High Level Wind",
+  GFA: "Graphical Area Forecast",
+  SURFACE_ANALYSIS: "Surface Analysis",
+  UPPER_ANALYSIS: "Upper Analysis",
+  COMPOSITE_RADAR: "Composite Radar",
+  SATELLITE: "Satellite",
+  SIG_WX: "Significant Weather",
+  TURBULENCE: "Turbulence",
+}
+
 export function parseNotamId(text: string): string | null {
   try {
     const parsed = JSON.parse(text)
@@ -116,4 +202,47 @@ export function parseNotamText(text: string): NotamParsed | null {
   } catch {
     return null
   }
+}
+
+export function parseImageProductData(text: string): ImageProductData | null {
+  try {
+    const parsed = JSON.parse(text)
+    if (parsed.frame_lists) {
+      return parsed as ImageProductData
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+export function isTextProduct(type: string): boolean {
+  return TEXT_PRODUCT_TYPES.includes(type as typeof TEXT_PRODUCT_TYPES[number])
+}
+
+export function isImageProduct(type: string): boolean {
+  const lowerType = type.toLowerCase()
+  return IMAGE_PRODUCT_TYPES.some(t => lowerType.includes(t.replace(/_/g, ""))) ||
+    lowerType === "image"
+}
+
+// Extract all image IDs from an ImageProductData structure
+export function extractImageIds(data: ImageProductData): { id: number; sv: string; ev: string }[] {
+  const images: { id: number; sv: string; ev: string }[] = []
+  
+  for (const frameList of data.frame_lists) {
+    for (const frame of frameList.frames) {
+      // Get the latest image for each frame
+      if (frame.images.length > 0) {
+        const latestImage = frame.images[frame.images.length - 1]
+        images.push({
+          id: latestImage.id,
+          sv: frame.sv,
+          ev: frame.ev,
+        })
+      }
+    }
+  }
+  
+  return images
 }
