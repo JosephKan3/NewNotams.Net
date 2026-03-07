@@ -1,13 +1,13 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, useEffect } from "react"
 import { Eye, EyeOff, RotateCcw, X, ExternalLink, ChevronLeft, ChevronRight, Play, Pause, ZoomIn, ZoomOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import type { WeatherData, WeatherResponse } from "@/lib/types"
-import { parseNotamText, parseNotamId, PRODUCT_LABELS, TEXT_PRODUCT_TYPES } from "@/lib/types"
+import type { WeatherData, WeatherResponse, ImageProductData } from "@/lib/types"
+import { parseNotamText, parseNotamId, PRODUCT_LABELS, parseImageProductData, extractImageIds } from "@/lib/types"
 
 interface ResultsDisplayProps {
   data: WeatherResponse | null
@@ -30,18 +30,6 @@ const PRODUCT_ORDER = [
   "upperwind",
   "space_weather",
   "vfr_route",
-  // Then image products
-  "upper_analysis",
-  "surface_analysis",
-  "composite_radar",
-  "radar",
-  "satellite",
-  "gfa",
-  "lgf",
-  "sig_wx",
-  "turbulence",
-  "low_level_wind",
-  "high_level_wind",
 ]
 
 function NotamCard({
@@ -91,6 +79,17 @@ function NotamCard({
 }
 
 function WeatherCard({ item }: { item: WeatherData }) {
+  // Try to parse the text as JSON to extract raw content
+  let displayText = item.text
+  try {
+    const parsed = JSON.parse(item.text)
+    if (parsed.raw) {
+      displayText = parsed.raw
+    }
+  } catch {
+    // Use text as-is
+  }
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -102,15 +101,15 @@ function WeatherCard({ item }: { item: WeatherData }) {
       </CardHeader>
       <CardContent>
         <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
-          {item.text}
+          {displayText}
         </pre>
       </CardContent>
     </Card>
   )
 }
 
-// Format validity time for display (e.g., "07 0000" from timestamp)
-function formatValidityTime(timestamp: string | number | undefined): string {
+// Format validity time for display (e.g., "07 0000" from ISO timestamp)
+function formatValidityTime(timestamp: string): string {
   if (!timestamp) return ""
   const date = new Date(timestamp)
   const day = date.getUTCDate().toString().padStart(2, "0")
@@ -120,38 +119,42 @@ function formatValidityTime(timestamp: string | number | undefined): string {
 }
 
 // Image Panel with frame navigation - similar to Nav Canada's UI
-function ImagePanel({ items, title }: { items: WeatherData[]; title: string }) {
-  const [currentIndex, setCurrentIndex] = useState(0)
+function ImagePanel({ 
+  imageData, 
+  title,
+  location 
+}: { 
+  imageData: ImageProductData
+  title: string
+  location: string
+}) {
+  const [currentFrameIndex, setCurrentFrameIndex] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [zoom, setZoom] = useState(1)
 
-  // Sort items by startValidity
-  const sortedItems = useMemo(() => {
-    return [...items].sort((a, b) => {
-      const aTime = a.startValidity ? new Date(a.startValidity).getTime() : 0
-      const bTime = b.startValidity ? new Date(b.startValidity).getTime() : 0
-      return aTime - bTime
-    })
-  }, [items])
-
-  const currentItem = sortedItems[currentIndex]
-  const imageUrl = `https://plan.navcanada.ca/weather/images/${currentItem?.pk}.image`
+  // Extract all frames with their image IDs
+  const frames = useMemo(() => {
+    return extractImageIds(imageData)
+  }, [imageData])
 
   // Auto-play functionality
-  useMemo(() => {
-    if (!isPlaying) return
+  useEffect(() => {
+    if (!isPlaying || frames.length <= 1) return
     const interval = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % sortedItems.length)
+      setCurrentFrameIndex((prev) => (prev + 1) % frames.length)
     }, 1500)
     return () => clearInterval(interval)
-  }, [isPlaying, sortedItems.length])
+  }, [isPlaying, frames.length])
+
+  const currentFrame = frames[currentFrameIndex]
+  const imageUrl = currentFrame ? `https://plan.navcanada.ca/weather/images/${currentFrame.id}.image` : ""
 
   const handlePrev = () => {
-    setCurrentIndex((prev) => (prev - 1 + sortedItems.length) % sortedItems.length)
+    setCurrentFrameIndex((prev) => (prev - 1 + frames.length) % frames.length)
   }
 
   const handleNext = () => {
-    setCurrentIndex((prev) => (prev + 1) % sortedItems.length)
+    setCurrentFrameIndex((prev) => (prev + 1) % frames.length)
   }
 
   const handleZoomIn = () => {
@@ -162,15 +165,23 @@ function ImagePanel({ items, title }: { items: WeatherData[]; title: string }) {
     setZoom((prev) => Math.max(prev - 0.25, 0.5))
   }
 
-  if (!currentItem) return null
+  if (frames.length === 0) return null
+
+  // Build descriptive title
+  const fullTitle = [
+    PRODUCT_LABELS[imageData.product] || imageData.product,
+    imageData.sub_product,
+    imageData.geography,
+    imageData.sub_geography,
+  ].filter(Boolean).join(" / ")
 
   return (
     <Card className="overflow-hidden">
       {/* Header */}
       <CardHeader className="pb-2 bg-muted/50">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-sm font-medium truncate">
-            {title}
+          <CardTitle className="text-sm font-medium">
+            {fullTitle || title}
           </CardTitle>
           <a
             href={imageUrl}
@@ -188,20 +199,20 @@ function ImagePanel({ items, title }: { items: WeatherData[]; title: string }) {
       <CardContent className="p-0 relative bg-background">
         <div 
           className="relative overflow-auto"
-          style={{ maxHeight: "500px" }}
+          style={{ maxHeight: "600px" }}
         >
           <div 
-            className="flex items-center justify-center min-h-[300px] p-2"
+            className="flex items-center justify-center min-h-[300px]"
             style={{ 
               transform: `scale(${zoom})`,
-              transformOrigin: "center center",
+              transformOrigin: "top left",
               transition: "transform 0.2s ease"
             }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={imageUrl}
-              alt={title}
+              alt={fullTitle || title}
               className="max-w-full h-auto"
               loading="lazy"
             />
@@ -234,24 +245,24 @@ function ImagePanel({ items, title }: { items: WeatherData[]; title: string }) {
       {/* Footer with Frame Selectors and Navigation */}
       <div className="border-t border-border bg-muted/50 p-3">
         {/* Frame Selectors */}
-        {sortedItems.length > 1 && (
+        {frames.length > 1 && (
           <div className="flex flex-wrap gap-1 mb-3">
-            {sortedItems.map((item, index) => (
+            {frames.map((frame, index) => (
               <Button
-                key={item.pk}
-                variant={index === currentIndex ? "default" : "outline"}
+                key={frame.id}
+                variant={index === currentFrameIndex ? "default" : "outline"}
                 size="sm"
                 className="text-xs h-7 px-2"
-                onClick={() => setCurrentIndex(index)}
+                onClick={() => setCurrentFrameIndex(index)}
               >
-                {formatValidityTime(item.startValidity) || `Frame ${index + 1}`}
+                {formatValidityTime(frame.sv)}
               </Button>
             ))}
           </div>
         )}
 
         {/* Navigation Controls */}
-        {sortedItems.length > 1 && (
+        {frames.length > 1 && (
           <div className="flex items-center justify-center gap-2">
             <Button
               variant="outline"
@@ -284,16 +295,16 @@ function ImagePanel({ items, title }: { items: WeatherData[]; title: string }) {
         )}
 
         {/* Validity Info */}
-        <div className="text-center text-xs text-muted-foreground mt-2">
-          {currentItem.startValidity && (
-            <span>Valid: {new Date(currentItem.startValidity).toLocaleString()}</span>
-          )}
-          {sortedItems.length > 1 && (
-            <span className="ml-2">
-              ({currentIndex + 1} of {sortedItems.length})
-            </span>
-          )}
-        </div>
+        {currentFrame && (
+          <div className="text-center text-xs text-muted-foreground mt-2">
+            <span>Valid: {formatValidityTime(currentFrame.sv)} - {formatValidityTime(currentFrame.ev)}</span>
+            {frames.length > 1 && (
+              <span className="ml-2">
+                ({currentFrameIndex + 1} of {frames.length})
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </Card>
   )
@@ -364,52 +375,16 @@ function DismissedNotamsSection({
   )
 }
 
-// Helper to determine if a product type is an image type
-function isImageType(type: string): boolean {
-  const imageTypes = [
-    "upper_analysis",
-    "surface_analysis",
-    "composite_radar",
-    "radar",
-    "satellite",
-    "gfa",
-    "lgf",
-    "sig_wx",
-    "turbulence",
-    "low_level_wind",
-    "high_level_wind",
-  ]
-  const lowerType = type.toLowerCase().replace(/-/g, "_")
-  return imageTypes.some(t => lowerType.includes(t) || lowerType === t)
-}
-
-// Helper to normalize product type for grouping
-function normalizeProductType(type: string): string {
-  const lowerType = type.toLowerCase()
-  
-  // Map various API response types to our display categories
-  if (lowerType.includes("upper_analysis") || lowerType.includes("upperanalysis")) return "upper_analysis"
-  if (lowerType.includes("surface_analysis") || lowerType.includes("surfaceanalysis")) return "surface_analysis"
-  if (lowerType.includes("composite_radar") || lowerType.includes("compositeradar")) return "composite_radar"
-  if (lowerType === "radar" || lowerType.startsWith("radar/")) return "radar"
-  if (lowerType.includes("satellite")) return "satellite"
-  if (lowerType === "gfa" || lowerType.startsWith("gfa/")) return "gfa"
-  if (lowerType === "lgf" || lowerType.startsWith("lgf/")) return "lgf"
-  if (lowerType.includes("sig_wx") || lowerType.includes("sigwx")) return "sig_wx"
-  if (lowerType.includes("turbulence")) return "turbulence"
-  if (lowerType.includes("low_level_wind") || lowerType.includes("lowlevelwind")) return "low_level_wind"
-  if (lowerType.includes("high_level_wind") || lowerType.includes("highlevelwind")) return "high_level_wind"
-  
-  return type
-}
-
-// Helper to create a grouping key for image products (to group frames together)
-function getImageGroupKey(item: WeatherData): string {
-  // Group by type and location/description to keep related frames together
-  const type = normalizeProductType(item.type)
-  const location = item.location || ""
-  // Use the first part of text or description if available for sub-grouping
-  return `${type}|${location}`
+// Helper to check if an item is an image product
+function isImageProductItem(item: WeatherData): boolean {
+  // Check if type is "image" or if the text contains frame_lists
+  if (item.type === "image") return true
+  try {
+    const parsed = JSON.parse(item.text)
+    return !!parsed.frame_lists
+  } catch {
+    return false
+  }
 }
 
 export function ResultsDisplay({
@@ -420,48 +395,34 @@ export function ResultsDisplay({
   onRestoreAll,
   isDismissed,
 }: ResultsDisplayProps) {
-  // Group data by product type
-  const grouped = useMemo(() => {
-    if (!data?.data) return {}
+  // Separate text and image products
+  const { textProducts, imageProducts } = useMemo(() => {
+    if (!data?.data) return { textProducts: {}, imageProducts: [] }
     
-    const groups: Record<string, WeatherData[]> = {}
-    
-    for (const item of data.data) {
-      const normalizedType = normalizeProductType(item.type)
-      if (!groups[normalizedType]) {
-        groups[normalizedType] = []
-      }
-      groups[normalizedType].push(item)
-    }
-    
-    return groups
-  }, [data])
-
-  // Group image products by their group key (to display frames together in panels)
-  const imageGroups = useMemo(() => {
-    if (!data?.data) return {}
-    
-    const groups: Record<string, WeatherData[]> = {}
+    const textGroups: Record<string, WeatherData[]> = {}
+    const images: { item: WeatherData; parsed: ImageProductData }[] = []
     
     for (const item of data.data) {
-      const normalizedType = normalizeProductType(item.type)
-      if (isImageType(normalizedType)) {
-        const groupKey = getImageGroupKey(item)
-        if (!groups[groupKey]) {
-          groups[groupKey] = []
+      if (isImageProductItem(item)) {
+        const parsed = parseImageProductData(item.text)
+        if (parsed) {
+          images.push({ item, parsed })
         }
-        groups[groupKey].push(item)
+      } else {
+        const type = item.type.toLowerCase()
+        if (!textGroups[type]) {
+          textGroups[type] = []
+        }
+        textGroups[type].push(item)
       }
     }
     
-    return groups
+    return { textProducts: textGroups, imageProducts: images }
   }, [data])
 
   // Get dismissed NOTAMs that were in the current results
   const dismissedNotams = useMemo(() => {
-    if (!data?.data) return []
-    
-    const notams = data.data.filter(item => item.type === "notam")
+    const notams = textProducts.notam || []
     return notams
       .map(item => {
         const parsed = parseNotamText(item.text)
@@ -473,17 +434,17 @@ export function ResultsDisplay({
         }
       })
       .filter(notam => dismissedIds.includes(notam.id))
-  }, [data, dismissedIds])
+  }, [textProducts.notam, dismissedIds])
 
   // Count visible NOTAMs
   const visibleNotamCount = useMemo(() => {
-    const notams = grouped.notam || []
+    const notams = textProducts.notam || []
     return notams.filter(item => {
       const parsed = parseNotamText(item.text)
       const id = parsed?.id || parseNotamId(item.text) || item.pk
       return !isDismissed(id)
     }).length
-  }, [grouped.notam, isDismissed])
+  }, [textProducts.notam, isDismissed])
 
   if (!data) {
     return (
@@ -501,9 +462,8 @@ export function ResultsDisplay({
     )
   }
 
-  // Get text product types that have data
-  const textProductTypes = Object.keys(grouped)
-    .filter(type => !isImageType(type))
+  // Get text product types that have data, sorted by PRODUCT_ORDER
+  const textProductTypes = Object.keys(textProducts)
     .sort((a, b) => {
       const aIndex = PRODUCT_ORDER.indexOf(a)
       const bIndex = PRODUCT_ORDER.indexOf(b)
@@ -513,21 +473,18 @@ export function ResultsDisplay({
       return aIndex - bIndex
     })
 
-  // Get image group keys sorted
-  const imageGroupKeys = Object.keys(imageGroups).sort()
-
   return (
     <div className="space-y-6">
       {/* Summary */}
       <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
         <span>Results:</span>
         {Object.entries(data.meta.count).map(([type, count]) => {
-          const normalizedType = normalizeProductType(type)
-          const label = PRODUCT_LABELS[normalizedType] || PRODUCT_LABELS[type] || type
+          const label = PRODUCT_LABELS[type.toLowerCase()] || PRODUCT_LABELS[type] || type
+          const isNotam = type.toLowerCase() === "notam"
           return (
             <Badge key={type} variant="outline">
-              {label}: {type === "notam" ? visibleNotamCount : count}
-              {type === "notam" && dismissedNotams.length > 0 && (
+              {label}: {isNotam ? visibleNotamCount : count}
+              {isNotam && dismissedNotams.length > 0 && (
                 <span className="ml-1 opacity-60">({dismissedNotams.length} hidden)</span>
               )}
             </Badge>
@@ -544,10 +501,10 @@ export function ResultsDisplay({
 
       {/* Text Products */}
       {textProductTypes.map(type => {
-        const items = grouped[type]
+        const items = textProducts[type]
         if (!items || items.length === 0) return null
 
-        const label = PRODUCT_LABELS[type] || type
+        const label = PRODUCT_LABELS[type] || type.toUpperCase()
 
         return (
           <section key={type} className="space-y-3">
@@ -582,29 +539,20 @@ export function ResultsDisplay({
       })}
 
       {/* Image Products */}
-      {imageGroupKeys.length > 0 && (
+      {imageProducts.length > 0 && (
         <section className="space-y-4">
           <h2 className="text-lg font-semibold border-b border-border pb-2">
             Graphical Products
           </h2>
           <div className="grid gap-4 lg:grid-cols-2">
-            {imageGroupKeys.map(groupKey => {
-              const items = imageGroups[groupKey]
-              if (!items || items.length === 0) return null
-
-              // Create a title from the group key
-              const [type, location] = groupKey.split("|")
-              const typeLabel = PRODUCT_LABELS[type] || type
-              const title = location ? `${typeLabel} - ${location}` : typeLabel
-
-              return (
-                <ImagePanel
-                  key={groupKey}
-                  items={items}
-                  title={title}
-                />
-              )
-            })}
+            {imageProducts.map(({ item, parsed }, index) => (
+              <ImagePanel
+                key={`${item.pk}-${index}`}
+                imageData={parsed}
+                title={item.type}
+                location={item.location}
+              />
+            ))}
           </div>
         </section>
       )}
