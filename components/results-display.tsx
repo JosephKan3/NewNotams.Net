@@ -108,6 +108,144 @@ function WeatherCard({ item }: { item: WeatherData }) {
   )
 }
 
+// Upper Wind data structure
+interface UpperWindEntry {
+  location: string
+  validity: string
+  useTime: string
+  altitudes: Record<string, string>
+}
+
+// Parse upper wind text into structured data
+function parseUpperWindText(text: string): { raw: string; data?: UpperWindEntry } | null {
+  try {
+    const parsed = JSON.parse(text)
+    const raw = parsed.raw as string
+    return { raw, data: undefined }
+  } catch {
+    return { raw: text }
+  }
+}
+
+// Upper Wind altitude columns
+const UPPER_WIND_ALTITUDES = [
+  "3000", "6000", "9000", "12000", "18000", "24000", "30000", "34000", "39000", "45000", "53000"
+]
+
+// Component to display Upper Wind data in tabular format
+function UpperWindSection({ items }: { items: WeatherData[] }) {
+  // Group items by validity time
+  const groupedByValidity = useMemo(() => {
+    const groups: Record<string, { validity: string; useTime: string; entries: { location: string; raw: string }[] }> = {}
+    
+    for (const item of items) {
+      let raw = item.text
+      try {
+        const parsed = JSON.parse(item.text)
+        if (parsed.raw) {
+          raw = parsed.raw
+        }
+      } catch {
+        // Use text as-is
+      }
+      
+      // Extract validity and use time from the raw text
+      // Format: "VALID 071800Z FOR USE 12-00"
+      const validityMatch = raw.match(/VALID\s+(\d{6}Z)\s+FOR USE\s+([\d-]+)/)
+      const validityKey = validityMatch ? `${validityMatch[1]}_${validityMatch[2]}` : item.startValidity
+      const validity = validityMatch ? validityMatch[1] : item.startValidity
+      const useTime = validityMatch ? validityMatch[2] : ""
+      
+      if (!groups[validityKey]) {
+        groups[validityKey] = { validity, useTime, entries: [] }
+      }
+      groups[validityKey].entries.push({ location: item.location, raw })
+    }
+    
+    return Object.values(groups)
+  }, [items])
+
+  // Parse wind data from raw text
+  // Format: "3000    6000    9000   ..." on header line, then "YYZ  230 52  | 250 46 +9 |..."
+  const parseWindData = (raw: string): Record<string, string> => {
+    const result: Record<string, string> = {}
+    const lines = raw.split('\n')
+    
+    // Find the data line (contains | separators)
+    for (const line of lines) {
+      if (line.includes('|')) {
+        const parts = line.split('|').map(p => p.trim())
+        // First part might be location or wind data
+        let dataIndex = 0
+        // Skip if first part looks like a location (3-4 letter code)
+        if (parts[0].match(/^[A-Z]{3,4}$/)) {
+          dataIndex = 1
+        }
+        
+        UPPER_WIND_ALTITUDES.forEach((alt, i) => {
+          if (parts[dataIndex + i]) {
+            result[alt] = parts[dataIndex + i].trim()
+          }
+        })
+        break
+      }
+    }
+    
+    return result
+  }
+
+  return (
+    <section className="space-y-4">
+      <h2 className="text-lg font-semibold border-b border-border pb-2">
+        Upper Wind
+      </h2>
+      
+      {groupedByValidity.map((group, groupIndex) => (
+        <Card key={groupIndex}>
+          <CardHeader className="pb-2 bg-muted/50">
+            <div className="font-mono text-sm">
+              VALID {group.validity} FOR USE {group.useTime}
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm font-mono">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="px-2 py-2 text-left font-medium w-16"></th>
+                    {UPPER_WIND_ALTITUDES.map(alt => (
+                      <th key={alt} className="px-2 py-2 text-center font-medium whitespace-nowrap border-l border-border">
+                        {alt}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.entries.map((entry, entryIndex) => {
+                    const windData = parseWindData(entry.raw)
+                    return (
+                      <tr key={entryIndex} className="border-b border-border last:border-b-0">
+                        <td className="px-2 py-2 font-medium">
+                          {entry.location}
+                        </td>
+                        {UPPER_WIND_ALTITUDES.map(alt => (
+                          <td key={alt} className="px-2 py-2 text-center text-muted-foreground border-l border-border whitespace-nowrap">
+                            {windData[alt] || "-"}
+                          </td>
+                        ))}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </section>
+  )
+}
+
 // Format validity time for display (e.g., "07 0000" from ISO timestamp)
 function formatValidityTime(timestamp: string): string {
   if (!timestamp) return ""
@@ -504,6 +642,11 @@ export function ResultsDisplay({
         const items = textProducts[type]
         if (!items || items.length === 0) return null
 
+        // Use special component for Upper Wind
+        if (type === "upperwind") {
+          return <UpperWindSection key={type} items={items} />
+        }
+
         const label = PRODUCT_LABELS[type] || type.toUpperCase()
 
         return (
@@ -544,7 +687,7 @@ export function ResultsDisplay({
           <h2 className="text-lg font-semibold border-b border-border pb-2">
             Graphical Products
           </h2>
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
             {imageProducts.map(({ item, parsed }, index) => (
               <ImagePanel
                 key={`${item.pk}-${index}`}
