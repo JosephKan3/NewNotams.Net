@@ -108,96 +108,121 @@ function WeatherCard({ item }: { item: WeatherData }) {
   )
 }
 
-// Upper Wind data structure
-interface UpperWindEntry {
-  location: string
-  validity: string
-  useTime: string
-  altitudes: Record<string, string>
-}
+// Upper Wind altitude columns (in feet)
+const UPPER_WIND_ALTITUDES = [3000, 6000, 9000, 12000, 18000, 24000, 30000, 34000, 39000, 45000, 53000]
 
-// Parse upper wind text into structured data
-function parseUpperWindText(text: string): { raw: string; data?: UpperWindEntry } | null {
+// Wind data entry: [altitude, direction, speed, temperature?]
+type WindDataEntry = [number, number, number?, number?]
+
+// Parse upper wind JSON data
+// Format: ["FBCN35", "KWNO", "issue_time", "start_validity", "end_validity", "use_start", "use_end", null, null, null, null, [[altitude, dir, speed, temp], ...]]
+function parseUpperWindData(text: string): { 
+  windData: Record<number, { dir: number; speed: number; temp?: number }>;
+  validity: string;
+  useTime: string;
+  source: string;
+} | null {
   try {
     const parsed = JSON.parse(text)
-    const raw = parsed.raw as string
-    return { raw, data: undefined }
+    if (!Array.isArray(parsed)) return null
+    
+    // Extract wind data array (last element that is an array of arrays)
+    const windArray = parsed.find((item, idx) => 
+      idx >= 11 && Array.isArray(item) && item.length > 0 && Array.isArray(item[0])
+    ) as WindDataEntry[] | undefined
+    
+    if (!windArray) return null
+    
+    // Extract validity times
+    const startValidity = parsed[3] as string // ISO timestamp
+    const useStart = parsed[5] as string // Use period start
+    const useEnd = parsed[6] as string // Use period end
+    const source = parsed[1] as string // KWNO or CWAO
+    
+    // Format validity string (e.g., "071800Z")
+    const validityDate = new Date(startValidity)
+    const validityStr = `${validityDate.getUTCDate().toString().padStart(2, '0')}${validityDate.getUTCHours().toString().padStart(2, '0')}00Z`
+    
+    // Format use time (e.g., "12-00")
+    const useStartDate = new Date(useStart)
+    const useEndDate = new Date(useEnd)
+    const useTimeStr = `${useStartDate.getUTCHours().toString().padStart(2, '0')}-${useEndDate.getUTCHours().toString().padStart(2, '0')}`
+    
+    // Parse wind data into altitude-keyed object
+    const windData: Record<number, { dir: number; speed: number; temp?: number }> = {}
+    for (const entry of windArray) {
+      if (Array.isArray(entry) && entry.length >= 2) {
+        const [altitude, direction, speed, temp] = entry
+        windData[altitude] = { 
+          dir: direction, 
+          speed: speed ?? 0, 
+          temp: temp 
+        }
+      }
+    }
+    
+    return { windData, validity: validityStr, useTime: useTimeStr, source }
   } catch {
-    return { raw: text }
+    return null
   }
 }
 
-// Upper Wind altitude columns
-const UPPER_WIND_ALTITUDES = [
-  "3000", "6000", "9000", "12000", "18000", "24000", "30000", "34000", "39000", "45000", "53000"
-]
+// Format wind value for display (e.g., "250 46 +9" or "250 46")
+function formatWindValue(data: { dir: number; speed: number; temp?: number } | undefined): string {
+  if (!data) return "-"
+  const { dir, speed, temp } = data
+  const dirStr = dir.toString().padStart(3, '0')
+  const speedStr = speed.toString().padStart(2, ' ')
+  if (temp !== undefined && temp !== null) {
+    const tempSign = temp >= 0 ? '+' : ''
+    return `${dirStr} ${speedStr} ${tempSign}${temp}`
+  }
+  return `${dirStr} ${speedStr}`
+}
 
 // Component to display Upper Wind data in tabular format
 function UpperWindSection({ items }: { items: WeatherData[] }) {
   // Group items by validity time
   const groupedByValidity = useMemo(() => {
-    const groups: Record<string, { validity: string; useTime: string; entries: { location: string; raw: string }[] }> = {}
-    
-    console.log("[v0] UpperWindSection items:", items.length)
+    interface WindGroup {
+      validity: string
+      useTime: string
+      entries: { location: string; windData: Record<number, { dir: number; speed: number; temp?: number }> }[]
+    }
+    const groups: Record<string, WindGroup> = {}
     
     for (const item of items) {
-      let raw = item.text
-      try {
-        const parsed = JSON.parse(item.text)
-        if (parsed.raw) {
-          raw = parsed.raw
-        }
-      } catch {
-        // Use text as-is
-      }
+      const parsed = parseUpperWindData(item.text)
+      if (!parsed) continue
       
-      console.log("[v0] Upper wind raw data for", item.location, ":", raw.substring(0, 200))
-      
-      // Extract validity and use time from the raw text
-      // Format: "VALID 071800Z FOR USE 12-00"
-      const validityMatch = raw.match(/VALID\s+(\d{6}Z)\s+FOR USE\s+([\d-]+)/)
-      const validityKey = validityMatch ? `${validityMatch[1]}_${validityMatch[2]}` : item.startValidity
-      const validity = validityMatch ? validityMatch[1] : item.startValidity
-      const useTime = validityMatch ? validityMatch[2] : ""
+      const validityKey = `${parsed.validity}_${parsed.useTime}`
       
       if (!groups[validityKey]) {
-        groups[validityKey] = { validity, useTime, entries: [] }
+        groups[validityKey] = { 
+          validity: parsed.validity, 
+          useTime: parsed.useTime, 
+          entries: [] 
+        }
       }
-      groups[validityKey].entries.push({ location: item.location, raw })
+      
+      // Check if we already have this location
+      const existingEntry = groups[validityKey].entries.find(e => e.location === item.location)
+      if (existingEntry) {
+        // Merge wind data (some sources have different altitudes)
+        Object.assign(existingEntry.windData, parsed.windData)
+      } else {
+        groups[validityKey].entries.push({ 
+          location: item.location, 
+          windData: parsed.windData 
+        })
+      }
     }
-    
-    console.log("[v0] Upper wind groups:", Object.keys(groups).length)
     
     return Object.values(groups)
   }, [items])
 
-  // Parse wind data from raw text
-  // Format: "3000    6000    9000   ..." on header line, then "YYZ  230 52  | 250 46 +9 |..."
-  const parseWindData = (raw: string): Record<string, string> => {
-    const result: Record<string, string> = {}
-    const lines = raw.split('\n')
-    
-    // Find the data line (contains | separators)
-    for (const line of lines) {
-      if (line.includes('|')) {
-        const parts = line.split('|').map(p => p.trim())
-        // First part might be location or wind data
-        let dataIndex = 0
-        // Skip if first part looks like a location (3-4 letter code)
-        if (parts[0].match(/^[A-Z]{3,4}$/)) {
-          dataIndex = 1
-        }
-        
-        UPPER_WIND_ALTITUDES.forEach((alt, i) => {
-          if (parts[dataIndex + i]) {
-            result[alt] = parts[dataIndex + i].trim()
-          }
-        })
-        break
-      }
-    }
-    
-    return result
+  if (groupedByValidity.length === 0) {
+    return null
   }
 
   return (
@@ -208,7 +233,7 @@ function UpperWindSection({ items }: { items: WeatherData[] }) {
       
       {groupedByValidity.map((group, groupIndex) => (
         <Card key={groupIndex}>
-          <CardHeader className="pb-2 bg-muted/50">
+          <CardHeader className="py-2 bg-muted/50">
             <div className="font-mono text-sm">
               VALID {group.validity} FOR USE {group.useTime}
             </div>
@@ -227,21 +252,18 @@ function UpperWindSection({ items }: { items: WeatherData[] }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {group.entries.map((entry, entryIndex) => {
-                    const windData = parseWindData(entry.raw)
-                    return (
-                      <tr key={entryIndex} className="border-b border-border last:border-b-0">
-                        <td className="px-2 py-2 font-medium">
-                          {entry.location}
+                  {group.entries.map((entry, entryIndex) => (
+                    <tr key={entryIndex} className="border-b border-border last:border-b-0">
+                      <td className="px-2 py-2 font-medium">
+                        {entry.location}
+                      </td>
+                      {UPPER_WIND_ALTITUDES.map(alt => (
+                        <td key={alt} className="px-2 py-2 text-center text-muted-foreground border-l border-border whitespace-nowrap">
+                          {formatWindValue(entry.windData[alt])}
                         </td>
-                        {UPPER_WIND_ALTITUDES.map(alt => (
-                          <td key={alt} className="px-2 py-2 text-center text-muted-foreground border-l border-border whitespace-nowrap">
-                            {windData[alt] || "-"}
-                          </td>
-                        ))}
-                      </tr>
-                    )
-                  })}
+                      ))}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -546,17 +568,10 @@ export function ResultsDisplay({
     const textGroups: Record<string, WeatherData[]> = {}
     const images: { item: WeatherData; parsed: ImageProductData }[] = []
     
-    console.log("[v0] Processing data items:", data.data.length)
-    
     for (const item of data.data) {
-      console.log("[v0] Item type:", item.type, "isImageProduct:", isImageProductItem(item))
-      
       if (isImageProductItem(item)) {
         const parsed = parseImageProductData(item.text)
-        console.log("[v0] Parsed image data:", parsed ? "success" : "null")
         if (parsed) {
-          const frames = extractImageIds(parsed)
-          console.log("[v0] Extracted frames:", frames.length)
           images.push({ item, parsed })
         }
       } else {
@@ -567,9 +582,6 @@ export function ResultsDisplay({
         textGroups[type].push(item)
       }
     }
-    
-    console.log("[v0] Total image products:", images.length)
-    console.log("[v0] Text product types:", Object.keys(textGroups))
     
     return { textProducts: textGroups, imageProducts: images }
   }, [data])
@@ -704,17 +716,14 @@ export function ResultsDisplay({
             Graphical Products ({imageProducts.length})
           </h2>
           <div className="space-y-4">
-            {imageProducts.map(({ item, parsed }, index) => {
-              console.log("[v0] Rendering ImagePanel", index, "pk:", item.pk, "product:", parsed.product)
-              return (
-                <ImagePanel
-                  key={`image-${data?.meta.now}-${item.pk}-${index}`}
-                  imageData={parsed}
-                  title={item.type}
-                  location={item.location}
-                />
-              )
-            })}
+            {imageProducts.map(({ item, parsed }, index) => (
+              <ImagePanel
+                key={`image-${data?.meta.now}-${item.pk}-${index}`}
+                imageData={parsed}
+                title={parsed.product || item.type}
+                location={item.location}
+              />
+            ))}
           </div>
         </section>
       )}
