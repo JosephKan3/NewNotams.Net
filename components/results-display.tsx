@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Eye, EyeOff, RotateCcw, X, ExternalLink } from "lucide-react"
+import { Eye, EyeOff, RotateCcw, X, ExternalLink, ChevronLeft, ChevronRight, Play, Pause, ZoomIn, ZoomOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -109,48 +109,192 @@ function WeatherCard({ item }: { item: WeatherData }) {
   )
 }
 
-function ImageCard({ item }: { item: WeatherData }) {
-  // The API returns a pk/code that maps to an image URL
-  // Format: https://plan.navcanada.ca/weather/images/{code}.image
-  const imageCode = item.pk || item.text
-  const fullImageUrl = `https://plan.navcanada.ca/weather/images/${imageCode}.image`
+// Format validity time for display (e.g., "07 0000" from timestamp)
+function formatValidityTime(timestamp: string | number | undefined): string {
+  if (!timestamp) return ""
+  const date = new Date(timestamp)
+  const day = date.getUTCDate().toString().padStart(2, "0")
+  const hours = date.getUTCHours().toString().padStart(2, "0")
+  const minutes = date.getUTCMinutes().toString().padStart(2, "0")
+  return `${day} ${hours}${minutes}`
+}
+
+// Image Panel with frame navigation - similar to Nav Canada's UI
+function ImagePanel({ items, title }: { items: WeatherData[]; title: string }) {
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [zoom, setZoom] = useState(1)
+
+  // Sort items by startValidity
+  const sortedItems = useMemo(() => {
+    return [...items].sort((a, b) => {
+      const aTime = a.startValidity ? new Date(a.startValidity).getTime() : 0
+      const bTime = b.startValidity ? new Date(b.startValidity).getTime() : 0
+      return aTime - bTime
+    })
+  }, [items])
+
+  const currentItem = sortedItems[currentIndex]
+  const imageUrl = `https://plan.navcanada.ca/weather/images/${currentItem?.pk}.image`
+
+  // Auto-play functionality
+  useMemo(() => {
+    if (!isPlaying) return
+    const interval = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % sortedItems.length)
+    }, 1500)
+    return () => clearInterval(interval)
+  }, [isPlaying, sortedItems.length])
+
+  const handlePrev = () => {
+    setCurrentIndex((prev) => (prev - 1 + sortedItems.length) % sortedItems.length)
+  }
+
+  const handleNext = () => {
+    setCurrentIndex((prev) => (prev + 1) % sortedItems.length)
+  }
+
+  const handleZoomIn = () => {
+    setZoom((prev) => Math.min(prev + 0.25, 3))
+  }
+
+  const handleZoomOut = () => {
+    setZoom((prev) => Math.max(prev - 0.25, 0.5))
+  }
+
+  if (!currentItem) return null
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
+    <Card className="overflow-hidden">
+      {/* Header */}
+      <CardHeader className="pb-2 bg-muted/50">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="font-mono">
-              {item.location || item.type}
-            </Badge>
-            {item.startValidity && (
-              <span className="text-xs text-muted-foreground">
-                Valid: {new Date(item.startValidity).toLocaleString()}
-              </span>
-            )}
-          </div>
+          <CardTitle className="text-sm font-medium truncate">
+            {title}
+          </CardTitle>
           <a
-            href={fullImageUrl}
+            href={imageUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground shrink-0"
             title="Open in new tab"
           >
             <ExternalLink className="h-4 w-4" />
           </a>
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="relative overflow-hidden rounded-md bg-muted">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={fullImageUrl}
-            alt={`${item.type} - ${item.location || "Weather Chart"}`}
-            className="w-full h-auto"
-            loading="lazy"
-          />
+
+      {/* Image Content */}
+      <CardContent className="p-0 relative bg-background">
+        <div 
+          className="relative overflow-auto"
+          style={{ maxHeight: "500px" }}
+        >
+          <div 
+            className="flex items-center justify-center min-h-[300px] p-2"
+            style={{ 
+              transform: `scale(${zoom})`,
+              transformOrigin: "center center",
+              transition: "transform 0.2s ease"
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageUrl}
+              alt={title}
+              className="max-w-full h-auto"
+              loading="lazy"
+            />
+          </div>
+        </div>
+
+        {/* Zoom Controls */}
+        <div className="absolute top-2 right-2 flex flex-col gap-1">
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleZoomIn}
+            title="Zoom In"
+          >
+            <ZoomIn className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleZoomOut}
+            title="Zoom Out"
+          >
+            <ZoomOut className="h-4 w-4" />
+          </Button>
         </div>
       </CardContent>
+
+      {/* Footer with Frame Selectors and Navigation */}
+      <div className="border-t border-border bg-muted/50 p-3">
+        {/* Frame Selectors */}
+        {sortedItems.length > 1 && (
+          <div className="flex flex-wrap gap-1 mb-3">
+            {sortedItems.map((item, index) => (
+              <Button
+                key={item.pk}
+                variant={index === currentIndex ? "default" : "outline"}
+                size="sm"
+                className="text-xs h-7 px-2"
+                onClick={() => setCurrentIndex(index)}
+              >
+                {formatValidityTime(item.startValidity) || `Frame ${index + 1}`}
+              </Button>
+            ))}
+          </div>
+        )}
+
+        {/* Navigation Controls */}
+        {sortedItems.length > 1 && (
+          <div className="flex items-center justify-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={handlePrev}
+              title="Previous Frame"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setIsPlaying(!isPlaying)}
+              title={isPlaying ? "Pause" : "Play"}
+            >
+              {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={handleNext}
+              title="Next Frame"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
+        {/* Validity Info */}
+        <div className="text-center text-xs text-muted-foreground mt-2">
+          {currentItem.startValidity && (
+            <span>Valid: {new Date(currentItem.startValidity).toLocaleString()}</span>
+          )}
+          {sortedItems.length > 1 && (
+            <span className="ml-2">
+              ({currentIndex + 1} of {sortedItems.length})
+            </span>
+          )}
+        </div>
+      </div>
     </Card>
   )
 }
@@ -259,6 +403,15 @@ function normalizeProductType(type: string): string {
   return type
 }
 
+// Helper to create a grouping key for image products (to group frames together)
+function getImageGroupKey(item: WeatherData): string {
+  // Group by type and location/description to keep related frames together
+  const type = normalizeProductType(item.type)
+  const location = item.location || ""
+  // Use the first part of text or description if available for sub-grouping
+  return `${type}|${location}`
+}
+
 export function ResultsDisplay({
   data,
   dismissedIds,
@@ -279,6 +432,26 @@ export function ResultsDisplay({
         groups[normalizedType] = []
       }
       groups[normalizedType].push(item)
+    }
+    
+    return groups
+  }, [data])
+
+  // Group image products by their group key (to display frames together in panels)
+  const imageGroups = useMemo(() => {
+    if (!data?.data) return {}
+    
+    const groups: Record<string, WeatherData[]> = {}
+    
+    for (const item of data.data) {
+      const normalizedType = normalizeProductType(item.type)
+      if (isImageType(normalizedType)) {
+        const groupKey = getImageGroupKey(item)
+        if (!groups[groupKey]) {
+          groups[groupKey] = []
+        }
+        groups[groupKey].push(item)
+      }
     }
     
     return groups
@@ -328,15 +501,20 @@ export function ResultsDisplay({
     )
   }
 
-  // Get all product types that have data, sorted by PRODUCT_ORDER
-  const productTypes = Object.keys(grouped).sort((a, b) => {
-    const aIndex = PRODUCT_ORDER.indexOf(a)
-    const bIndex = PRODUCT_ORDER.indexOf(b)
-    if (aIndex === -1 && bIndex === -1) return a.localeCompare(b)
-    if (aIndex === -1) return 1
-    if (bIndex === -1) return -1
-    return aIndex - bIndex
-  })
+  // Get text product types that have data
+  const textProductTypes = Object.keys(grouped)
+    .filter(type => !isImageType(type))
+    .sort((a, b) => {
+      const aIndex = PRODUCT_ORDER.indexOf(a)
+      const bIndex = PRODUCT_ORDER.indexOf(b)
+      if (aIndex === -1 && bIndex === -1) return a.localeCompare(b)
+      if (aIndex === -1) return 1
+      if (bIndex === -1) return -1
+      return aIndex - bIndex
+    })
+
+  // Get image group keys sorted
+  const imageGroupKeys = Object.keys(imageGroups).sort()
 
   return (
     <div className="space-y-6">
@@ -364,13 +542,12 @@ export function ResultsDisplay({
         onRestoreAll={onRestoreAll}
       />
 
-      {/* Results by Product Type */}
-      {productTypes.map(type => {
+      {/* Text Products */}
+      {textProductTypes.map(type => {
         const items = grouped[type]
         if (!items || items.length === 0) return null
 
         const label = PRODUCT_LABELS[type] || type
-        const isImage = isImageType(type)
 
         return (
           <section key={type} className="space-y-3">
@@ -382,7 +559,7 @@ export function ResultsDisplay({
                 </span>
               )}
             </h2>
-            <div className={isImage ? "grid gap-4 md:grid-cols-2" : "grid gap-3"}>
+            <div className="grid gap-3">
               {items.map((item, index) => {
                 if (type === "notam") {
                   const parsed = parseNotamText(item.text)
@@ -397,16 +574,40 @@ export function ResultsDisplay({
                   )
                 }
                 
-                if (isImage) {
-                  return <ImageCard key={`${item.pk}-${index}`} item={item} />
-                }
-                
                 return <WeatherCard key={`${item.pk}-${index}`} item={item} />
               })}
             </div>
           </section>
         )
       })}
+
+      {/* Image Products */}
+      {imageGroupKeys.length > 0 && (
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold border-b border-border pb-2">
+            Graphical Products
+          </h2>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {imageGroupKeys.map(groupKey => {
+              const items = imageGroups[groupKey]
+              if (!items || items.length === 0) return null
+
+              // Create a title from the group key
+              const [type, location] = groupKey.split("|")
+              const typeLabel = PRODUCT_LABELS[type] || type
+              const title = location ? `${typeLabel} - ${location}` : typeLabel
+
+              return (
+                <ImagePanel
+                  key={groupKey}
+                  items={items}
+                  title={title}
+                />
+              )
+            })}
+          </div>
+        </section>
+      )}
     </div>
   )
 }
