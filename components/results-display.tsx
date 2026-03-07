@@ -138,6 +138,8 @@ function UpperWindSection({ items }: { items: WeatherData[] }) {
   const groupedByValidity = useMemo(() => {
     const groups: Record<string, { validity: string; useTime: string; entries: { location: string; raw: string }[] }> = {}
     
+    console.log("[v0] UpperWindSection items:", items.length)
+    
     for (const item of items) {
       let raw = item.text
       try {
@@ -148,6 +150,8 @@ function UpperWindSection({ items }: { items: WeatherData[] }) {
       } catch {
         // Use text as-is
       }
+      
+      console.log("[v0] Upper wind raw data for", item.location, ":", raw.substring(0, 200))
       
       // Extract validity and use time from the raw text
       // Format: "VALID 071800Z FOR USE 12-00"
@@ -161,6 +165,8 @@ function UpperWindSection({ items }: { items: WeatherData[] }) {
       }
       groups[validityKey].entries.push({ location: item.location, raw })
     }
+    
+    console.log("[v0] Upper wind groups:", Object.keys(groups).length)
     
     return Object.values(groups)
   }, [items])
@@ -540,10 +546,17 @@ export function ResultsDisplay({
     const textGroups: Record<string, WeatherData[]> = {}
     const images: { item: WeatherData; parsed: ImageProductData }[] = []
     
+    console.log("[v0] Processing data items:", data.data.length)
+    
     for (const item of data.data) {
+      console.log("[v0] Item type:", item.type, "isImageProduct:", isImageProductItem(item))
+      
       if (isImageProductItem(item)) {
         const parsed = parseImageProductData(item.text)
+        console.log("[v0] Parsed image data:", parsed ? "success" : "null")
         if (parsed) {
+          const frames = extractImageIds(parsed)
+          console.log("[v0] Extracted frames:", frames.length)
           images.push({ item, parsed })
         }
       } else {
@@ -554,6 +567,9 @@ export function ResultsDisplay({
         textGroups[type].push(item)
       }
     }
+    
+    console.log("[v0] Total image products:", images.length)
+    console.log("[v0] Text product types:", Object.keys(textGroups))
     
     return { textProducts: textGroups, imageProducts: images }
   }, [data])
@@ -685,17 +701,20 @@ export function ResultsDisplay({
       {imageProducts.length > 0 && (
         <section className="space-y-4">
           <h2 className="text-lg font-semibold border-b border-border pb-2">
-            Graphical Products
+            Graphical Products ({imageProducts.length})
           </h2>
           <div className="space-y-4">
-            {imageProducts.map(({ item, parsed }, index) => (
-              <ImagePanel
-                key={`${item.pk}-${index}`}
-                imageData={parsed}
-                title={item.type}
-                location={item.location}
-              />
-            ))}
+            {imageProducts.map(({ item, parsed }, index) => {
+              console.log("[v0] Rendering ImagePanel", index, "pk:", item.pk, "product:", parsed.product)
+              return (
+                <ImagePanel
+                  key={`image-${data?.meta.now}-${item.pk}-${index}`}
+                  imageData={parsed}
+                  title={item.type}
+                  location={item.location}
+                />
+              )
+            })}
           </div>
         </section>
       )}
