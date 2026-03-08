@@ -47,8 +47,8 @@ function NotamCard({
   if (isDismissed) return null
 
   return (
-    <div className="group relative border-b border-border py-2 last:border-b-0">
-      <div className="flex items-start gap-2">
+    <div className="group relative border-b border-border px-3 py-3 last:border-b-0">
+      <div className="flex items-start gap-3">
         <pre className="flex-1 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
           {parsed?.raw || item.text}
         </pre>
@@ -79,7 +79,7 @@ function WeatherCard({ item }: { item: WeatherData }) {
   }
 
   return (
-    <div className="border-b border-border py-2 last:border-b-0">
+    <div className="border-b border-border px-3 py-3 last:border-b-0">
       <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
         {displayText}
       </pre>
@@ -486,8 +486,8 @@ function DismissedNotamsSection({
       </div>
       <CollapsibleContent className="mt-3 border rounded-lg divide-y divide-border">
         {dismissedNotams.map((notam) => (
-          <div key={notam.id} className="p-2 opacity-60 hover:opacity-80">
-            <div className="flex items-start gap-2">
+          <div key={notam.id} className="px-3 py-3 opacity-60 hover:opacity-80">
+            <div className="flex items-start gap-3">
               <pre className="flex-1 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed line-clamp-3">
                 {notam.text}
               </pre>
