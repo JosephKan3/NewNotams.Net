@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   searchParams.forEach((value, key) => {
     if (processedKeys.has(key)) return
     
-    if (key === "site" || key === "alpha") {
+    if (key === "site" || key === "alpha" || key === "image") {
       // These can have multiple values
       const values = searchParams.getAll(key)
       values.forEach(v => url.searchParams.append(key, v))
