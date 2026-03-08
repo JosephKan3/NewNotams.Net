@@ -18,19 +18,38 @@ interface ResultsDisplayProps {
   isDismissed: (id: string) => boolean
 }
 
-// Order for displaying products
+// Order for displaying products (NOTAMs are rendered separately, last)
 const PRODUCT_ORDER = [
-  // Text products first
-  "sigmet",
-  "airmet",
-  "notam",
   "metar",
   "taf",
+  "sigmet",
+  "airmet",
   "pirep",
   "upperwind",
   "space_weather",
   "vfr_route",
 ]
+
+function JumpToLegend({ sections }: { sections: { id: string; label: string; count?: number }[] }) {
+  if (sections.length === 0) return null
+  return (
+    <div className="flex flex-wrap items-center gap-2 sticky top-0 z-10 bg-background/95 backdrop-blur-sm py-2 -mx-4 px-4 border-b border-border">
+      <span className="text-xs text-muted-foreground shrink-0">Jump to:</span>
+      {sections.map(s => (
+        <a
+          key={s.id}
+          href={`#${s.id}`}
+          className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs font-medium hover:bg-muted transition-colors"
+        >
+          {s.label}
+          {s.count !== undefined && (
+            <span className="text-muted-foreground">({s.count})</span>
+          )}
+        </a>
+      ))}
+    </div>
+  )
+}
 
 function NotamCard({
   item,
@@ -595,8 +614,9 @@ export function ResultsDisplay({
     )
   }
 
-  // Get text product types that have data, sorted by PRODUCT_ORDER
+  // Non-NOTAM text product types, sorted by PRODUCT_ORDER
   const textProductTypes = Object.keys(textProducts)
+    .filter(t => t !== "notam")
     .sort((a, b) => {
       const aIndex = PRODUCT_ORDER.indexOf(a)
       const bIndex = PRODUCT_ORDER.indexOf(b)
@@ -606,8 +626,21 @@ export function ResultsDisplay({
       return aIndex - bIndex
     })
 
+  // Build legend sections (in render order: text → images → notams)
+  const legendSections = [
+    ...textProductTypes.map(type => ({
+      id: `section-${type}`,
+      label: PRODUCT_LABELS[type] || type.toUpperCase(),
+    })),
+    ...(imageProducts.length > 0 ? [{ id: "section-images", label: "Graphical Products", count: imageProducts.length }] : []),
+    ...(textProducts.notam?.length ? [{ id: "section-notam", label: "NOTAMs", count: visibleNotamCount }] : []),
+  ]
+
   return (
     <div className="space-y-6">
+      {/* Jump-to legend */}
+      <JumpToLegend sections={legendSections} />
+
       {/* Summary */}
       <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
         <span>Results:</span>
@@ -632,45 +665,30 @@ export function ResultsDisplay({
         onRestoreAll={onRestoreAll}
       />
 
-      {/* Text Products */}
+      {/* Non-NOTAM Text Products */}
       {textProductTypes.map(type => {
         const items = textProducts[type]
         if (!items || items.length === 0) return null
 
-        // Use special component for Upper Wind
         if (type === "upperwind") {
-          return <UpperWindSection key={type} items={items} />
+          return (
+            <section key={type} id="section-upperwind">
+              <UpperWindSection items={items} />
+            </section>
+          )
         }
 
         const label = PRODUCT_LABELS[type] || type.toUpperCase()
 
         return (
-          <section key={type}>
+          <section key={type} id={`section-${type}`}>
             <h2 className="text-lg font-semibold border-b border-border pb-2 mb-2">
               {label}
-              {type === "notam" && (
-                <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  ({visibleNotamCount} visible)
-                </span>
-              )}
             </h2>
             <div className="border rounded-lg divide-y-0">
-              {items.map((item, index) => {
-                if (type === "notam") {
-                  const parsed = parseNotamText(item.text)
-                  const id = parsed?.id || parseNotamId(item.text) || item.pk
-                  return (
-                    <NotamCard
-                      key={`${item.pk}-${index}`}
-                      item={item}
-                      onDismiss={onDismiss}
-                      isDismissed={isDismissed(id)}
-                    />
-                  )
-                }
-                
-                return <WeatherCard key={`${item.pk}-${index}`} item={item} />
-              })}
+              {items.map((item, index) => (
+                <WeatherCard key={`${item.pk}-${index}`} item={item} />
+              ))}
             </div>
           </section>
         )
@@ -678,7 +696,7 @@ export function ResultsDisplay({
 
       {/* Image Products */}
       {imageProducts.length > 0 && (
-        <section className="space-y-4">
+        <section id="section-images" className="space-y-4">
           <h2 className="text-lg font-semibold border-b border-border pb-2">
             Graphical Products ({imageProducts.length})
           </h2>
@@ -691,6 +709,32 @@ export function ResultsDisplay({
                 location={item.location}
               />
             ))}
+          </div>
+        </section>
+      )}
+
+      {/* NOTAMs — always last */}
+      {textProducts.notam && textProducts.notam.length > 0 && (
+        <section id="section-notam">
+          <h2 className="text-lg font-semibold border-b border-border pb-2 mb-2">
+            NOTAMs
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              ({visibleNotamCount} visible)
+            </span>
+          </h2>
+          <div className="border rounded-lg divide-y-0">
+            {textProducts.notam.map((item, index) => {
+              const parsed = parseNotamText(item.text)
+              const id = parsed?.id || parseNotamId(item.text) || item.pk
+              return (
+                <NotamCard
+                  key={`${item.pk}-${index}`}
+                  item={item}
+                  onDismiss={onDismiss}
+                  isDismissed={isDismissed(id)}
+                />
+              )
+            })}
           </div>
         </section>
       )}
