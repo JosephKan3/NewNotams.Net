@@ -47,34 +47,22 @@ function NotamCard({
   if (isDismissed) return null
 
   return (
-    <Card className="relative">
-      <CardHeader className="pb-2">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="font-mono">
-              {item.location}
-            </Badge>
-            <Badge variant="secondary" className="font-mono text-xs">
-              {notamId}
-            </Badge>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={() => onDismiss(notamId)}
-            title="Dismiss this NOTAM"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
+    <div className="group relative border-b border-border px-3 py-3 last:border-b-0">
+      <div className="flex items-start gap-3">
+        <pre className="flex-1 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
           {parsed?.raw || item.text}
         </pre>
-      </CardContent>
-    </Card>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 shrink-0 opacity-50 hover:opacity-100"
+          onClick={() => onDismiss(notamId)}
+          title="Dismiss this NOTAM"
+        >
+          <X className="h-3 w-3" />
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -91,20 +79,11 @@ function WeatherCard({ item }: { item: WeatherData }) {
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="font-mono">
-            {item.location}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
-          {displayText}
-        </pre>
-      </CardContent>
-    </Card>
+    <div className="border-b border-border px-3 py-3 last:border-b-0">
+      <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
+        {displayText}
+      </pre>
+    </div>
   )
 }
 
@@ -505,36 +484,24 @@ function DismissedNotamsSection({
           Restore All
         </Button>
       </div>
-      <CollapsibleContent className="mt-3 space-y-3">
+      <CollapsibleContent className="mt-3 border rounded-lg divide-y divide-border">
         {dismissedNotams.map((notam) => (
-          <Card key={notam.id} className="opacity-60">
-            <CardHeader className="pb-2">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="font-mono">
-                    {notam.location}
-                  </Badge>
-                  <Badge variant="secondary" className="font-mono text-xs">
-                    {notam.id}
-                  </Badge>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onRestore(notam.id)}
-                  className="flex items-center gap-1"
-                >
-                  <RotateCcw className="h-3 w-3" />
-                  Restore
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed line-clamp-3">
+          <div key={notam.id} className="px-3 py-3 opacity-60 hover:opacity-80">
+            <div className="flex items-start gap-3">
+              <pre className="flex-1 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed line-clamp-3">
                 {notam.text}
               </pre>
-            </CardContent>
-          </Card>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onRestore(notam.id)}
+                className="shrink-0 h-6 px-2 text-xs"
+              >
+                <RotateCcw className="h-3 w-3 mr-1" />
+                Restore
+              </Button>
+            </div>
+          </div>
         ))}
       </CollapsibleContent>
     </Collapsible>
@@ -678,8 +645,8 @@ export function ResultsDisplay({
         const label = PRODUCT_LABELS[type] || type.toUpperCase()
 
         return (
-          <section key={type} className="space-y-3">
-            <h2 className="text-lg font-semibold border-b border-border pb-2">
+          <section key={type}>
+            <h2 className="text-lg font-semibold border-b border-border pb-2 mb-2">
               {label}
               {type === "notam" && (
                 <span className="ml-2 text-sm font-normal text-muted-foreground">
@@ -687,7 +654,7 @@ export function ResultsDisplay({
                 </span>
               )}
             </h2>
-            <div className="grid gap-3">
+            <div className="border rounded-lg divide-y-0">
               {items.map((item, index) => {
                 if (type === "notam") {
                   const parsed = parseNotamText(item.text)
