@@ -4,6 +4,7 @@ import { useState, useCallback } from "react"
 import { SearchInput } from "@/components/search-input"
 import { ResultsDisplay } from "@/components/results-display"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { NotifySettings } from "@/components/notify-settings"
 import { useDismissedNotams } from "@/hooks/use-dismissed-notams"
 import type { SearchParams, WeatherResponse } from "@/lib/types"
 
@@ -11,6 +12,7 @@ export default function Home() {
   const [data, setData] = useState<WeatherResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [lastQueryString, setLastQueryString] = useState<string | undefined>(undefined)
 
   const {
     dismissedIds,
@@ -137,6 +139,7 @@ export default function Home() {
         queryParams.set("collapse_duplicates", "true")
       }
 
+      setLastQueryString(queryParams.toString())
       const response = await fetch(`/api/weather?${queryParams.toString()}`)
 
       if (!response.ok) {
@@ -163,7 +166,10 @@ export default function Home() {
               Aviation Weather and NOTAMs with Smart Filtering
             </p>
           </div>
-          <ThemeToggle />
+          <div className="flex items-center gap-1">
+            <NotifySettings currentQueryString={lastQueryString} dismissedIds={dismissedIds} />
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 
