@@ -143,9 +143,18 @@ export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams
   const isCronCall = !sp.has("topic")
 
-  // ── Vercel Cron path ────────────────────────────────────────────────────────
-  // Called every hour by vercel.json cron. Iterates all stored user schedules.
+  // ── Cron path ────────────────────────────────────────────────────────────────
+  // Called every hour by an external cron (e.g. cron-job.org). Iterates all
+  // stored user schedules. Requires Authorization: Bearer <CRON_SECRET> header.
   if (isCronCall) {
+    const cronSecret = process.env.CRON_SECRET
+    if (cronSecret) {
+      const auth = request.headers.get("authorization")
+      if (auth !== `Bearer ${cronSecret}`) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      }
+    }
+
     const currentHour = new Date().getUTCHours()
 
     let schedules
