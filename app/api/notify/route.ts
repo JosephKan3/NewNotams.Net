@@ -84,37 +84,9 @@ async function sendNotification(config: SendConfig): Promise<{ ok: boolean; erro
   const priority = sigmets.length > 0 ? "4" : airmets.length > 0 ? "3" : "2"
   const tags     = sigmets.length > 0 ? "warning,airplane" : "airplane"
 
-  // Message 1 — weather summary
-  const summaryLines: string[] = []
-  if (metars.length > 0)  summaryLines.push(`📡 ${metars[0].text.trim()}`)
-  if (tafs.length > 0)    summaryLines.push(`📋 TAF available`)
-  if (sigmets.length > 0) summaryLines.push(`⚠️ ${sigmets.length} SIGMET${sigmets.length > 1 ? "s" : ""} ACTIVE`)
-  if (airmets.length > 0) summaryLines.push(`⚠️ ${airmets.length} AIRMET${airmets.length > 1 ? "s" : ""} ACTIVE`)
-  if (pireps.length > 0)  summaryLines.push(`✈️ ${pireps.length} PIREP${pireps.length > 1 ? "s" : ""}`)
-  summaryLines.push(`📌 ${notams.length} NOTAM${notams.length !== 1 ? "s" : ""}`)
-
-  try {
-    const res1 = await fetch(`${config.ntfyServer}/${config.topic}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        Title:    title,
-        Priority: priority,
-        Tags:     tags,
-      },
-      body: summaryLines.join("\n"),
-    })
-    if (!res1.ok) {
-      const err = await res1.text()
-      return { ok: false, error: `ntfy error ${res1.status}: ${err}` }
-    }
-  } catch (e) {
-    return { ok: false, error: `Failed to reach ntfy: ${e}` }
-  }
-
-  // Message 2 — NOTAMs (only if there are any)
+  // Message 1 — NOTAMs (sent first so it appears below weather in notification shade)
   if (notams.length > 0) {
-    const notamLines: string[] = [`${sites.join("/")} NOTAMs - ${timeStr}`]
+    const notamLines: string[] = []
     for (const notam of notams) {
       const parsed = extractNotamSummary(notam.text)
       if (parsed) notamLines.push(`${parsed.id}: ${parsed.summary}`)
@@ -124,16 +96,42 @@ async function sendNotification(config: SendConfig): Promise<{ ok: boolean; erro
         method: "POST",
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
-          Title:    `${sites.join("/")} NOTAMs (${notams.length}) - ${timeStr}`,
+          Title:    `${sites.join("/")} NOTAMs - ${timeStr}`,
           Priority: "2",
           Tags:     "memo",
         },
-        body: notamLines.slice(1).join("\n"),
+        body: notamLines.join("\n"),
       })
-      // Non-fatal if NOTAM message fails
     } catch {
       // ignore
     }
+  }
+
+  // Message 2 — weather summary (sent last so it appears on top)
+  const summaryLines: string[] = []
+  if (metars.length > 0)  summaryLines.push(`📡 ${metars[0].text.trim()}`)
+  if (tafs.length > 0)    summaryLines.push(`📋 ${tafs[0].text.trim()}`)
+  if (sigmets.length > 0) summaryLines.push(`⚠️ ${sigmets.length} SIGMET${sigmets.length > 1 ? "s" : ""} ACTIVE`)
+  if (airmets.length > 0) summaryLines.push(`⚠️ ${airmets.length} AIRMET${airmets.length > 1 ? "s" : ""} ACTIVE`)
+  if (pireps.length > 0)  summaryLines.push(`✈️ ${pireps.length} PIREP${pireps.length > 1 ? "s" : ""}`)
+
+  try {
+    const res = await fetch(`${config.ntfyServer}/${config.topic}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        Title:    title,
+        Priority: priority,
+        Tags:     tags,
+      },
+      body: summaryLines.join("\n"),
+    })
+    if (!res.ok) {
+      const err = await res.text()
+      return { ok: false, error: `ntfy error ${res.status}: ${err}` }
+    }
+  } catch (e) {
+    return { ok: false, error: `Failed to reach ntfy: ${e}` }
   }
 
   return { ok: true, title }
