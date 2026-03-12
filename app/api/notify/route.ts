@@ -30,6 +30,36 @@ function extractNotamSummary(text: string): { id: string; summary: string } | nu
   }
 }
 
+// Split lines into chunks that fit within ntfy's ~4096 byte body limit
+function chunkLines(lines: string[], maxChars = 3500): string[] {
+  const chunks: string[] = []
+  let current = ""
+  for (const line of lines) {
+    const addition = (current ? "\n" : "") + line
+    if (current.length + addition.length > maxChars) {
+      if (current) chunks.push(current)
+      current = line
+    } else {
+      current += addition
+    }
+  }
+  if (current) chunks.push(current)
+  return chunks
+}
+
+async function ntfyPost(server: string, topic: string, headers: Record<string, string>, body: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${server}/${topic}`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain; charset=utf-8", ...headers },
+      body,
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 interface SendConfig {
   topic: string
   ntfyServer: string
@@ -47,6 +77,7 @@ async function sendNotification(config: SendConfig): Promise<{ ok: boolean; erro
   )
   ;(alphas.length ? alphas : ["metar", "taf", "notam", "sigmet", "airmet", "pirep"])
     .forEach(a => navUrl.searchParams.append("alpha", a))
+  saved.getAll("image").forEach(img => navUrl.searchParams.append("image", img))
   navUrl.searchParams.set("notam_choice", saved.get("notam_choice") || "default")
   navUrl.searchParams.set("_", Date.now().toString())
 
@@ -79,59 +110,75 @@ async function sendNotification(config: SendConfig): Promise<{ ok: boolean; erro
   const sigmets = items.filter(i => i.type === "sigmet")
   const airmets = items.filter(i => i.type === "airmet")
   const pireps  = items.filter(i => i.type === "pirep")
+  const imageItems = items.filter(i => !["metar","taf","notam","sigmet","airmet","pirep","upperwind","space_weather"].includes(i.type))
 
   const title    = `${sites.join("/")} Weather Brief - ${timeStr}`
   const priority = sigmets.length > 0 ? "4" : airmets.length > 0 ? "3" : "2"
   const tags     = sigmets.length > 0 ? "warning,airplane" : "airplane"
 
-  // Message 1 — NOTAMs (sent first so it appears below weather in notification shade)
+  // 1 — NOTAMs (sent first = appears lowest in notification shade)
   if (notams.length > 0) {
-    const notamLines: string[] = []
-    for (const notam of notams) {
-      const parsed = extractNotamSummary(notam.text)
-      if (parsed) notamLines.push(`${parsed.id}: ${parsed.summary}`)
-    }
-    try {
-      await fetch(`${config.ntfyServer}/${config.topic}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain; charset=utf-8",
-          Title:    `${sites.join("/")} NOTAMs - ${timeStr}`,
-          Priority: "2",
-          Tags:     "memo",
-        },
-        body: notamLines.join("\n"),
-      })
-    } catch {
-      // ignore
+    const notamLines = notams.flatMap(n => {
+      const p = extractNotamSummary(n.text)
+      return p ? [`${p.id}: ${p.summary}`] : []
+    })
+    const chunks = chunkLines(notamLines)
+    for (let i = 0; i < chunks.length; i++) {
+      const suffix = chunks.length > 1 ? ` (${i + 1}/${chunks.length})` : ""
+      await ntfyPost(config.ntfyServer, config.topic, {
+        Title: `${sites.join("/")} NOTAMs${suffix} - ${timeStr}`,
+        Priority: "2",
+        Tags: "memo",
+      }, chunks[i])
     }
   }
 
-  // Message 2 — weather summary (sent last so it appears on top)
+  // 2 — Graphical products (one attachment per image)
+  for (const item of imageItems) {
+    try {
+      const data = JSON.parse(item.text)
+      if (!data.frame_lists) continue
+      // Get the latest frame from the first frame_list
+      const firstList = data.frame_lists[0]
+      if (!firstList?.frames?.length) continue
+      const latestFrame = firstList.frames[firstList.frames.length - 1]
+      if (!latestFrame?.images?.length) continue
+      const imageId = latestFrame.images[latestFrame.images.length - 1].id
+      const imageUrl = `https://plan.navcanada.ca/weather/images/${imageId}.image`
+      const label = item.type.replace(/_/g, " ").toUpperCase()
+      await ntfyPost(config.ntfyServer, config.topic, {
+        Title: `${label} - ${timeStr}`,
+        Priority: "2",
+        Tags: "world_map",
+        Attach: imageUrl,
+      }, label)
+    } catch {
+      // skip malformed image item
+    }
+  }
+
+  // 3 — Weather summary per aerodrome (sent last = appears on top)
   const summaryLines: string[] = []
-  if (metars.length > 0)  summaryLines.push(`📡 ${metars[0].text.trim()}`)
-  if (tafs.length > 0)    summaryLines.push(`📋 ${tafs[0].text.trim()}`)
   if (sigmets.length > 0) summaryLines.push(`⚠️ ${sigmets.length} SIGMET${sigmets.length > 1 ? "s" : ""} ACTIVE`)
   if (airmets.length > 0) summaryLines.push(`⚠️ ${airmets.length} AIRMET${airmets.length > 1 ? "s" : ""} ACTIVE`)
   if (pireps.length > 0)  summaryLines.push(`✈️ ${pireps.length} PIREP${pireps.length > 1 ? "s" : ""}`)
+  for (const site of sites) {
+    const metar = metars.find(i => i.location === site)
+    const taf   = tafs.find(i => i.location === site)
+    if (metar || taf) summaryLines.push("")
+    if (metar) summaryLines.push(`📡 ${metar.text.trim()}`)
+    if (taf)   summaryLines.push(`📋 ${taf.text.trim()}`)
+  }
 
-  try {
-    const res = await fetch(`${config.ntfyServer}/${config.topic}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        Title:    title,
-        Priority: priority,
-        Tags:     tags,
-      },
-      body: summaryLines.join("\n"),
-    })
-    if (!res.ok) {
-      const err = await res.text()
-      return { ok: false, error: `ntfy error ${res.status}: ${err}` }
-    }
-  } catch (e) {
-    return { ok: false, error: `Failed to reach ntfy: ${e}` }
+  const summaryChunks = chunkLines(summaryLines)
+  for (let i = 0; i < summaryChunks.length; i++) {
+    const suffix = summaryChunks.length > 1 ? ` (${i + 1}/${summaryChunks.length})` : ""
+    const ok = await ntfyPost(config.ntfyServer, config.topic, {
+      Title: `${title}${suffix}`,
+      Priority: priority,
+      Tags: tags,
+    }, summaryChunks[i])
+    if (!ok && i === 0) return { ok: false, error: "ntfy delivery failed" }
   }
 
   return { ok: true, title }
