@@ -94,8 +94,8 @@ function NotamCard({
 
   return (
     <div className="group relative border-b border-border px-3 py-3 last:border-b-0">
-      <div className="flex items-start gap-3">
-        <pre className="flex-1 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
+      <div className="flex items-start gap-3 min-w-0">
+        <pre className="flex-1 min-w-0 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
           {parsed?.raw || item.text}
         </pre>
         <Button
@@ -125,8 +125,8 @@ function WeatherCard({ item }: { item: WeatherData }) {
   }
 
   return (
-    <div className="border-b border-border px-3 py-3 last:border-b-0">
-      <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
+    <div className="border-b border-border px-3 py-3 last:border-b-0 min-w-0">
+      <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed min-w-0">
         {displayText}
       </pre>
     </div>
@@ -712,7 +712,7 @@ export function ResultsDisplay({
             <h2 className="text-lg font-semibold border-b border-border pb-2 mb-2">
               {label}
             </h2>
-            <div className="border rounded-lg divide-y-0">
+            <div className="border rounded-lg divide-y-0 overflow-hidden">
               {items.map((item, index) => (
                 <WeatherCard key={`${item.pk}-${index}`} item={item} />
               ))}
@@ -749,7 +749,7 @@ export function ResultsDisplay({
               ({visibleNotamCount} visible)
             </span>
           </h2>
-          <div className="border rounded-lg divide-y-0">
+          <div className="border rounded-lg divide-y-0 overflow-hidden">
             {textProducts.notam.map((item, index) => {
               const parsed = parseNotamText(item.text)
               const id = parsed?.id || parseNotamId(item.text) || item.pk
