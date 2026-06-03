@@ -51,19 +51,46 @@ function JumpToLegend({ sections }: { sections: { id: string; label: string; cou
   )
 }
 
+function extractLastSection(raw: string): string {
+  // Find all labeled sections like A) B) C) ... G)
+  const matches = [...raw.matchAll(/\b([A-G])\)\s*([\s\S]*?)(?=\s+[A-G]\)|$)/g)]
+  if (matches.length === 0) return raw.slice(-80).trim()
+  const last = matches[matches.length - 1]
+  return `${last[1]}) ${last[2].trim().slice(0, 80)}`
+}
+
 function NotamCard({
   item,
   onDismiss,
+  onRestore,
   isDismissed,
 }: {
   item: WeatherData
   onDismiss: (id: string) => void
+  onRestore: (id: string) => void
   isDismissed: boolean
 }) {
   const parsed = parseNotamText(item.text)
   const notamId = parsed?.id || parseNotamId(item.text) || item.pk
 
-  if (isDismissed) return null
+  if (isDismissed) {
+    const lastSection = parsed?.raw ? extractLastSection(parsed.raw) : ""
+    return (
+      <div className="border-b border-border px-3 py-1.5 last:border-b-0 flex items-center gap-2 opacity-40 hover:opacity-70 transition-opacity">
+        <span className="font-mono text-xs text-muted-foreground shrink-0">{notamId}</span>
+        <span className="font-mono text-xs text-muted-foreground truncate flex-1">{lastSection}</span>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5 shrink-0"
+          onClick={() => onRestore(notamId)}
+          title="Restore this NOTAM"
+        >
+          <RotateCcw className="h-3 w-3" />
+        </Button>
+      </div>
+    )
+  }
 
   return (
     <div className="group relative border-b border-border px-3 py-3 last:border-b-0">
@@ -147,14 +174,14 @@ function parseUpperWindData(text: string): {
     const useTimeStr = `${useStartDate.getUTCHours().toString().padStart(2, '0')}-${useEndDate.getUTCHours().toString().padStart(2, '0')}`
     
     // Parse wind data into altitude-keyed object
-    const windData: Record<number, { dir: number; speed: number; temp?: number }> = {}
+    const windData: Record<number, { dir: number | null; speed: number; temp?: number | null }> = {}
     for (const entry of windArray) {
       if (Array.isArray(entry) && entry.length >= 2) {
         const [altitude, direction, speed, temp] = entry
-        windData[altitude] = { 
-          dir: direction, 
-          speed: speed ?? 0, 
-          temp: temp 
+        windData[altitude] = {
+          dir: direction ?? null,
+          speed: speed ?? 0,
+          temp: temp ?? null,
         }
       }
     }
@@ -166,12 +193,12 @@ function parseUpperWindData(text: string): {
 }
 
 // Format wind value for display (e.g., "250 46 +9" or "250 46")
-function formatWindValue(data: { dir: number; speed: number; temp?: number } | undefined): string {
+function formatWindValue(data: { dir: number | null; speed: number; temp?: number | null } | undefined): string {
   if (!data) return "-"
   const { dir, speed, temp } = data
-  const dirStr = dir.toString().padStart(3, '0')
+  const dirStr = dir != null ? dir.toString().padStart(3, '0') : "---"
   const speedStr = speed.toString().padStart(2, ' ')
-  if (temp !== undefined && temp !== null) {
+  if (temp != null) {
     const tempSign = temp >= 0 ? '+' : ''
     return `${dirStr} ${speedStr} ${tempSign}${temp}`
   }
@@ -185,7 +212,7 @@ function UpperWindSection({ items }: { items: WeatherData[] }) {
     interface WindGroup {
       validity: string
       useTime: string
-      entries: { location: string; windData: Record<number, { dir: number; speed: number; temp?: number }> }[]
+      entries: { location: string; windData: Record<number, { dir: number | null; speed: number; temp?: number | null }> }[]
     }
     const groups: Record<string, WindGroup> = {}
     
@@ -731,6 +758,7 @@ export function ResultsDisplay({
                   key={`${item.pk}-${index}`}
                   item={item}
                   onDismiss={onDismiss}
+                  onRestore={onRestore}
                   isDismissed={isDismissed(id)}
                 />
               )
