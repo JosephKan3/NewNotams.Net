@@ -8,11 +8,12 @@ import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import type { WeatherData, WeatherResponse, ImageProductData } from "@/lib/types"
 import { parseNotamText, parseNotamId, PRODUCT_LABELS, parseImageProductData, extractImageIds } from "@/lib/types"
+import type { DismissedNotamMeta } from "@/hooks/use-dismissed-notams"
 
 interface ResultsDisplayProps {
   data: WeatherResponse | null
-  dismissedIds: string[]
-  onDismiss: (id: string) => void
+  dismissedNotams: DismissedNotamMeta[]
+  onDismiss: (id: string, raw: string, location: string | null) => void
   onRestore: (id: string) => void
   onRestoreAll: () => void
   isDismissed: (id: string) => boolean
@@ -51,58 +52,29 @@ function JumpToLegend({ sections }: { sections: { id: string; label: string; cou
   )
 }
 
-function extractLastSection(raw: string): string {
-  // Find all labeled sections like A) B) C) ... G)
-  const matches = [...raw.matchAll(/\b([A-G])\)\s*([\s\S]*?)(?=\s+[A-G]\)|$)/g)]
-  if (matches.length === 0) return raw.slice(-80).trim()
-  const last = matches[matches.length - 1]
-  return `${last[1]}) ${last[2].trim().slice(0, 80)}`
-}
 
 function NotamCard({
   item,
   onDismiss,
-  onRestore,
-  isDismissed,
 }: {
   item: WeatherData
-  onDismiss: (id: string) => void
-  onRestore: (id: string) => void
-  isDismissed: boolean
+  onDismiss: (id: string, raw: string, location: string | null) => void
 }) {
   const parsed = parseNotamText(item.text)
   const notamId = parsed?.id || parseNotamId(item.text) || item.pk
-
-  if (isDismissed) {
-    const lastSection = parsed?.raw ? extractLastSection(parsed.raw) : ""
-    return (
-      <div className="border-b border-border px-3 py-1.5 last:border-b-0 flex items-center gap-2 opacity-40 hover:opacity-70 transition-opacity">
-        <span className="font-mono text-xs text-muted-foreground shrink-0">{notamId}</span>
-        <span className="font-mono text-xs text-muted-foreground truncate flex-1">{lastSection}</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-5 w-5 shrink-0"
-          onClick={() => onRestore(notamId)}
-          title="Restore this NOTAM"
-        >
-          <RotateCcw className="h-3 w-3" />
-        </Button>
-      </div>
-    )
-  }
+  const raw = parsed?.raw || item.text
 
   return (
     <div className="group relative border-b border-border px-3 py-3 last:border-b-0">
       <div className="flex items-start gap-3 min-w-0">
         <pre className="flex-1 min-w-0 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
-          {parsed?.raw || item.text}
+          {raw}
         </pre>
         <Button
           variant="ghost"
           size="icon"
           className="h-6 w-6 shrink-0 opacity-50 hover:opacity-100"
-          onClick={() => onDismiss(notamId)}
+          onClick={() => onDismiss(notamId, raw, item.location)}
           title="Dismiss this NOTAM"
         >
           <X className="h-3 w-3" />
@@ -141,8 +113,8 @@ type WindDataEntry = [number, number, number?, number?]
 
 // Parse upper wind JSON data
 // Format: ["FBCN35", "KWNO", "issue_time", "start_validity", "end_validity", "use_start", "use_end", null, null, null, null, [[altitude, dir, speed, temp], ...]]
-function parseUpperWindData(text: string): { 
-  windData: Record<number, { dir: number; speed: number; temp?: number }>;
+function parseUpperWindData(text: string): {
+  windData: Record<number, { dir: number | null; speed: number; temp?: number | null }>;
   validity: string;
   useTime: string;
   source: string;
@@ -506,7 +478,7 @@ function DismissedNotamsSection({
   onRestore,
   onRestoreAll,
 }: {
-  dismissedNotams: { id: string; location: string; text: string }[]
+  dismissedNotams: DismissedNotamMeta[]
   onRestore: (id: string) => void
   onRestoreAll: () => void
 }) {
@@ -530,12 +502,12 @@ function DismissedNotamsSection({
           Restore All
         </Button>
       </div>
-      <CollapsibleContent className="mt-3 border rounded-lg divide-y divide-border">
+      <CollapsibleContent className="mt-3 border rounded-lg divide-y divide-border overflow-hidden">
         {dismissedNotams.map((notam) => (
           <div key={notam.id} className="px-3 py-3 opacity-60 hover:opacity-80">
-            <div className="flex items-start gap-3">
-              <pre className="flex-1 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed line-clamp-3">
-                {notam.text}
+            <div className="flex items-start gap-3 min-w-0">
+              <pre className="flex-1 min-w-0 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed line-clamp-3">
+                {notam.raw || notam.id}
               </pre>
               <Button
                 variant="ghost"
@@ -568,7 +540,7 @@ function isImageProductItem(item: WeatherData): boolean {
 
 export function ResultsDisplay({
   data,
-  dismissedIds,
+  dismissedNotams,
   onDismiss,
   onRestore,
   onRestoreAll,
@@ -577,10 +549,10 @@ export function ResultsDisplay({
   // Separate text and image products
   const { textProducts, imageProducts } = useMemo(() => {
     if (!data?.data) return { textProducts: {}, imageProducts: [] }
-    
+
     const textGroups: Record<string, WeatherData[]> = {}
     const images: { item: WeatherData; parsed: ImageProductData }[] = []
-    
+
     for (const item of data.data) {
       if (isImageProductItem(item)) {
         const parsed = parseImageProductData(item.text)
@@ -595,35 +567,20 @@ export function ResultsDisplay({
         textGroups[type].push(item)
       }
     }
-    
+
     return { textProducts: textGroups, imageProducts: images }
   }, [data])
 
-  // Get dismissed NOTAMs that were in the current results
-  const dismissedNotams = useMemo(() => {
-    const notams = textProducts.notam || []
-    return notams
-      .map(item => {
-        const parsed = parseNotamText(item.text)
-        const id = parsed?.id || parseNotamId(item.text) || item.pk
-        return {
-          id,
-          location: item.location,
-          text: parsed?.raw || item.text,
-        }
-      })
-      .filter(notam => dismissedIds.includes(notam.id))
-  }, [textProducts.notam, dismissedIds])
-
-  // Count visible NOTAMs
-  const visibleNotamCount = useMemo(() => {
-    const notams = textProducts.notam || []
-    return notams.filter(item => {
+  // NOTAMs visible in the current results (globally dismissed ones are filtered out)
+  const visibleNotams = useMemo(() => {
+    return (textProducts.notam || []).filter(item => {
       const parsed = parseNotamText(item.text)
       const id = parsed?.id || parseNotamId(item.text) || item.pk
       return !isDismissed(id)
-    }).length
+    })
   }, [textProducts.notam, isDismissed])
+
+  const visibleNotamCount = visibleNotams.length
 
   if (!data) {
     return (
@@ -678,7 +635,7 @@ export function ResultsDisplay({
             <Badge key={type} variant="outline">
               {label}: {isNotam ? visibleNotamCount : count}
               {isNotam && dismissedNotams.length > 0 && (
-                <span className="ml-1 opacity-60">({dismissedNotams.length} hidden)</span>
+                <span className="ml-1 opacity-60">({dismissedNotams.length} dismissed)</span>
               )}
             </Badge>
           )
@@ -741,7 +698,7 @@ export function ResultsDisplay({
       )}
 
       {/* NOTAMs — always last */}
-      {textProducts.notam && textProducts.notam.length > 0 && (
+      {visibleNotams.length > 0 && (
         <section id="section-notam">
           <h2 className="text-lg font-semibold border-b border-border pb-2 mb-2">
             NOTAMs
@@ -750,19 +707,13 @@ export function ResultsDisplay({
             </span>
           </h2>
           <div className="border rounded-lg divide-y-0 overflow-hidden">
-            {textProducts.notam.map((item, index) => {
-              const parsed = parseNotamText(item.text)
-              const id = parsed?.id || parseNotamId(item.text) || item.pk
-              return (
-                <NotamCard
-                  key={`${item.pk}-${index}`}
-                  item={item}
-                  onDismiss={onDismiss}
-                  onRestore={onRestore}
-                  isDismissed={isDismissed(id)}
-                />
-              )
-            })}
+            {visibleNotams.map((item, index) => (
+              <NotamCard
+                key={`${item.pk}-${index}`}
+                item={item}
+                onDismiss={onDismiss}
+              />
+            ))}
           </div>
         </section>
       )}

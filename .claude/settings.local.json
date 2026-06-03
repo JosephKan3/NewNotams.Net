@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm install @vercel/kv --save)"
+      "Bash(npm install @vercel/kv --save)",
+      "Bash(npx tsc *)"
     ]
   }
 }

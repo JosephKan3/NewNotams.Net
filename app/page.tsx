@@ -16,6 +16,7 @@ export default function Home() {
 
   const {
     dismissedIds,
+    dismissedNotams,
     dismiss,
     restore,
     restoreAll,
@@ -190,7 +191,7 @@ export default function Home() {
         <section>
           <ResultsDisplay
             data={data}
-            dismissedIds={dismissedIds}
+            dismissedNotams={dismissedNotams}
             onDismiss={dismiss}
             onRestore={restore}
             onRestoreAll={restoreAll}
