@@ -23,13 +23,14 @@ const PRODUCT_ORDER = [
   // Text products first
   "sigmet",
   "airmet",
-  "notam",
   "metar",
   "taf",
   "pirep",
   "upperwind",
   "space_weather",
   "vfr_route",
+  // NOTAMs at the very bottom
+  "notam",
 ]
 
 function NotamCard({
