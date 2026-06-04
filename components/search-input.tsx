@@ -61,8 +61,8 @@ const DEFAULT_PARAMS: SearchParams = {
     satellite_visible: false,
     satellite_yukon_nwt: false,
     // Graphical Forecast
-    gfa_clouds_weather: false,
-    gfa_icing_turb_freezing: false,
+    gfa_clouds_weather: true,
+    gfa_icing_turb_freezing: true,
     gfa_local_bc: false,
     // Significant Weather
     sigwx_high: false,
