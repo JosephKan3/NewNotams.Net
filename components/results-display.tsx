@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState, useEffect } from "react"
-import { Eye, EyeOff, RotateCcw, X, ExternalLink, ChevronLeft, ChevronRight, Play, Pause, ZoomIn, ZoomOut } from "lucide-react"
+import { Eye, EyeOff, RotateCcw, X, ExternalLink, ChevronLeft, ChevronRight, Play, Pause, ZoomIn, ZoomOut, Wand2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -58,9 +58,11 @@ function JumpToLegend({ sections }: { sections: { id: string; label: string; cou
 function NotamCard({
   item,
   onDismiss,
+  formatEnabled,
 }: {
   item: WeatherData
   onDismiss: (id: string, raw: string, location: string | null) => void
+  formatEnabled: boolean
 }) {
   const parsed = parseNotamText(item.text)
   const notamId = parsed?.id || parseNotamId(item.text) || item.pk
@@ -70,7 +72,7 @@ function NotamCard({
     <div className="group relative border-b border-border px-3 py-3 last:border-b-0">
       <div className="flex items-start gap-3 min-w-0">
         <pre className="flex-1 min-w-0 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
-          {formatDates(raw)}
+          {formatEnabled ? formatDates(raw) : raw}
         </pre>
         <Button
           variant="ghost"
@@ -86,14 +88,11 @@ function NotamCard({
   )
 }
 
-function WeatherCard({ item }: { item: WeatherData }) {
-  // Try to parse the text as JSON to extract raw content
+function WeatherCard({ item, formatEnabled }: { item: WeatherData; formatEnabled: boolean }) {
   let displayText = item.text
   try {
     const parsed = JSON.parse(item.text)
-    if (parsed.raw) {
-      displayText = parsed.raw
-    }
+    if (parsed.raw) displayText = parsed.raw
   } catch {
     // Use text as-is
   }
@@ -101,7 +100,7 @@ function WeatherCard({ item }: { item: WeatherData }) {
   return (
     <div className="border-b border-border px-3 py-3 last:border-b-0 min-w-0">
       <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed min-w-0">
-        {formatDates(displayText)}
+        {formatEnabled ? formatDates(displayText) : displayText}
       </pre>
     </div>
   )
@@ -563,6 +562,19 @@ export function ResultsDisplay({
   onRestoreAll,
   isDismissed,
 }: ResultsDisplayProps) {
+  const [dateFormatEnabled, setDateFormatEnabled] = useState(() => {
+    if (typeof window === "undefined") return false
+    return localStorage.getItem("dateFormatEnabled") === "true"
+  })
+
+  function toggleDateFormat() {
+    setDateFormatEnabled(prev => {
+      const next = !prev
+      localStorage.setItem("dateFormatEnabled", String(next))
+      return next
+    })
+  }
+
   // Separate text and image products
   const { textProducts, imageProducts } = useMemo(() => {
     if (!data?.data) return { textProducts: {}, imageProducts: [] }
@@ -643,7 +655,7 @@ export function ResultsDisplay({
       <JumpToLegend sections={legendSections} />
 
       {/* Summary */}
-      <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
         <span>Results:</span>
         {Object.entries(data.meta.count).map(([type, count]) => {
           const label = PRODUCT_LABELS[type.toLowerCase()] || PRODUCT_LABELS[type] || type
@@ -657,6 +669,16 @@ export function ResultsDisplay({
             </Badge>
           )
         })}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggleDateFormat}
+          className={`ml-auto h-7 gap-1.5 px-2 text-xs ${dateFormatEnabled ? "text-foreground" : "text-muted-foreground"}`}
+          title="Toggle date formatting"
+        >
+          <Wand2 className="h-3 w-3" />
+          {dateFormatEnabled ? "Raw dates" : "Format dates"}
+        </Button>
       </div>
 
       {/* Dismissed NOTAMs Section */}
@@ -688,7 +710,7 @@ export function ResultsDisplay({
             </h2>
             <div className="border rounded-lg divide-y-0 overflow-hidden">
               {items.map((item, index) => (
-                <WeatherCard key={`${item.pk}-${index}`} item={item} />
+                <WeatherCard key={`${item.pk}-${index}`} item={item} formatEnabled={dateFormatEnabled} />
               ))}
             </div>
           </section>
@@ -729,6 +751,7 @@ export function ResultsDisplay({
                 key={`${item.pk}-${index}`}
                 item={item}
                 onDismiss={onDismiss}
+                formatEnabled={dateFormatEnabled}
               />
             ))}
           </div>
