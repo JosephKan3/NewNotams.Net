@@ -227,22 +227,29 @@ export function isImageProduct(type: string): boolean {
 }
 
 // Extract all image IDs from an ImageProductData structure
+// Only uses the most recent frame_list (latest start validity)
 export function extractImageIds(data: ImageProductData): { id: number; sv: string; ev: string }[] {
   const images: { id: number; sv: string; ev: string }[] = []
-  
-  for (const frameList of data.frame_lists) {
-    for (const frame of frameList.frames) {
-      // Get the latest image for each frame
-      if (frame.images.length > 0) {
-        const latestImage = frame.images[frame.images.length - 1]
-        images.push({
-          id: latestImage.id,
-          sv: frame.sv,
-          ev: frame.ev,
-        })
-      }
+
+  if (data.frame_lists.length === 0) return images
+
+  // Find the most recent frame_list by start validity
+  const latestFrameList = data.frame_lists.reduce((latest, current) => {
+    const latestDate = new Date(latest.sv)
+    const currentDate = new Date(current.sv)
+    return currentDate > latestDate ? current : latest
+  })
+
+  for (const frame of latestFrameList.frames) {
+    if (frame.images.length > 0) {
+      const latestImage = frame.images[frame.images.length - 1]
+      images.push({
+        id: latestImage.id,
+        sv: frame.sv,
+        ev: frame.ev,
+      })
     }
   }
-  
+
   return images
 }
