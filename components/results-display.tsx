@@ -271,13 +271,17 @@ function UpperWindSection({ items }: { items: WeatherData[] }) {
   )
 }
 
-// Format validity time for display (e.g., "07 0000" from ISO timestamp)
+// Format validity time for display (e.g., "04 18" from ISO timestamp)
+// Note: Nav Canada timestamps don't include "Z" suffix but ARE UTC times
 function formatValidityTime(timestamp: string): string {
   if (!timestamp) return ""
-  const date = new Date(timestamp)
-  const day = date.getUTCDate().toString().padStart(2, "0")
-  const hours = date.getUTCHours().toString().padStart(2, "0")
-  const minutes = date.getUTCMinutes().toString().padStart(2, "0")
+  // Parse directly — format is YYYY-MM-DDTHH:MM:SS (UTC, missing Z suffix)
+  const match = timestamp.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
+  if (!match) return ""
+  const [, , , day, hours, minutes] = match
+  if (minutes === "00") {
+    return `${day} ${hours}`
+  }
   return `${day} ${hours}${minutes}`
 }
 
