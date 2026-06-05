@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(npm install @vercel/kv --save)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'feat: enable graphical forecast options in search input *)"
     ]
   }
 }

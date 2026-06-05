@@ -68,7 +68,7 @@ function NotamCard({
     <div className="group relative border-b border-border px-3 py-3 last:border-b-0">
       <div className="flex items-start gap-3 min-w-0">
         <pre className="flex-1 min-w-0 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
-          {raw}
+          {formatDates(raw)}
         </pre>
         <Button
           variant="ghost"
@@ -99,10 +99,19 @@ function WeatherCard({ item }: { item: WeatherData }) {
   return (
     <div className="border-b border-border px-3 py-3 last:border-b-0 min-w-0">
       <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed min-w-0">
-        {displayText}
+        {formatDates(displayText)}
       </pre>
     </div>
   )
+}
+
+// Minimal date formatting: add separators to recognizable date patterns
+// YYMMDDHHMMM → yyyy-MM-dd HH:MM  (e.g., 2606031420 → 2026-06-03 14:20)
+// DDHHMMZ     → DD HH:MMZ          (e.g., 031440Z    → 03 14:40Z)
+function formatDates(text: string): string {
+  return text
+    .replace(/\b(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\b/g, "20$1-$2-$3 $4:$5")
+    .replace(/\b(\d{2})(\d{2})(\d{2})Z\b/g, "$1 $2:$3Z")
 }
 
 // Upper Wind altitude columns (in feet)
@@ -147,7 +156,7 @@ function parseUpperWindData(text: string): {
     // Format use time (e.g., "12-00")
     const useStartDate = new Date(useStart)
     const useEndDate = new Date(useEnd)
-    const useTimeStr = `${useStartDate.getUTCHours().toString().padStart(2, '0')}-${useEndDate.getUTCHours().toString().padStart(2, '0')}`
+    const useTimeStr = `${useStartDate.getUTCHours().toString().padStart(2, '0')}:00Z-${useEndDate.getUTCHours().toString().padStart(2, '0')}:00Z`
     
     // Parse wind data into altitude-keyed object
     const windData: Record<number, { dir: number | null; speed: number; temp?: number | null }> = {}
