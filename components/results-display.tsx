@@ -108,6 +108,9 @@ function WeatherCard({ item }: { item: WeatherData }) {
 // Upper Wind altitude columns (in feet)
 const UPPER_WIND_ALTITUDES = [3000, 6000, 9000, 12000, 18000, 24000, 30000, 34000, 39000, 45000, 53000]
 
+// Month names for formatting
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
 // Wind data entry: [altitude, direction, speed, temperature?]
 type WindDataEntry = [number, number, number?, number?]
 
@@ -136,9 +139,10 @@ function parseUpperWindData(text: string): {
     const useEnd = parsed[6] as string // Use period end
     const source = parsed[1] as string // KWNO or CWAO
     
-    // Format validity string (e.g., "071800Z")
+    // Format validity string (e.g., "Jun 07, 18:00Z")
     const validityDate = new Date(startValidity)
-    const validityStr = `${validityDate.getUTCDate().toString().padStart(2, '0')}${validityDate.getUTCHours().toString().padStart(2, '0')}00Z`
+    const monthName = MONTH_NAMES[validityDate.getUTCMonth()]
+    const validityStr = `${monthName} ${validityDate.getUTCDate().toString().padStart(2, '0')}, ${validityDate.getUTCHours().toString().padStart(2, '0')}:00Z`
     
     // Format use time (e.g., "12-00")
     const useStartDate = new Date(useStart)
@@ -271,18 +275,16 @@ function UpperWindSection({ items }: { items: WeatherData[] }) {
   )
 }
 
-// Format validity time for display (e.g., "04 18" from ISO timestamp)
+// Format validity time for display (e.g., "Jun 04, 18:00" from ISO timestamp)
 // Note: Nav Canada timestamps don't include "Z" suffix but ARE UTC times
 function formatValidityTime(timestamp: string): string {
   if (!timestamp) return ""
   // Parse directly — format is YYYY-MM-DDTHH:MM:SS (UTC, missing Z suffix)
   const match = timestamp.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
   if (!match) return ""
-  const [, , , day, hours, minutes] = match
-  if (minutes === "00") {
-    return `${day} ${hours}`
-  }
-  return `${day} ${hours}${minutes}`
+  const [, , month, day, hours, minutes] = match
+  const monthName = MONTH_NAMES[parseInt(month, 10) - 1] || month
+  return `${monthName} ${day}, ${hours}:${minutes}`
 }
 
 // Image Panel with frame navigation - similar to Nav Canada's UI
