@@ -9,6 +9,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import type { WeatherData, WeatherResponse, ImageProductData } from "@/lib/types"
 import { parseNotamText, parseNotamId, PRODUCT_LABELS, parseImageProductData, extractImageIds } from "@/lib/types"
 import type { DismissedNotamMeta } from "@/hooks/use-dismissed-notams"
+import { UtcClock } from "@/components/utc-clock"
 
 interface ResultsDisplayProps {
   data: WeatherResponse | null
@@ -48,6 +49,7 @@ function JumpToLegend({ sections }: { sections: { id: string; label: string; cou
           )}
         </a>
       ))}
+      <UtcClock className="ml-auto font-mono text-xs tabular-nums text-muted-foreground" />
     </div>
   )
 }

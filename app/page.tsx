@@ -6,6 +6,7 @@ import { ResultsDisplay } from "@/components/results-display"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { NotifySettings } from "@/components/notify-settings"
 import { useDismissedNotams } from "@/hooks/use-dismissed-notams"
+import { UtcClock } from "@/components/utc-clock"
 import type { SearchParams, WeatherResponse } from "@/lib/types"
 
 export default function Home() {
@@ -167,7 +168,8 @@ export default function Home() {
               Aviation Weather and NOTAMs with Smart Filtering
             </p>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-3">
+            <UtcClock className="font-mono text-sm tabular-nums text-muted-foreground" />
             <NotifySettings currentQueryString={lastQueryString} dismissedIds={dismissedIds} />
             <ThemeToggle />
           </div>
