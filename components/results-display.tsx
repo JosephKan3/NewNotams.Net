@@ -19,12 +19,12 @@ interface ResultsDisplayProps {
   isDismissed: (id: string) => boolean
 }
 
-// Order for displaying products (NOTAMs are rendered separately, last)
+// Order for displaying products — NOTAMs rendered separately at the very bottom
 const PRODUCT_ORDER = [
-  "metar",
-  "taf",
   "sigmet",
   "airmet",
+  "metar",
+  "taf",
   "pirep",
   "upperwind",
   "space_weather",
