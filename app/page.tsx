@@ -198,13 +198,13 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-background">
       <header className="border-b border-border">
-        <div className="container mx-auto px-4 py-0 flex items-center justify-between">
-          <div>
+        <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-4">
+          <div className="flex-shrink-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/NNN_Banner.png"
               alt="NewNotams.Net"
-              className="h-14 w-auto md:h-16 lg:h-20"
+              className="h-10 w-auto object-contain sm:h-12 md:h-14"
             />
           </div>
           <div className="flex items-center gap-3">
