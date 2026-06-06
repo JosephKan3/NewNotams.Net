@@ -5,6 +5,7 @@ import { SearchInput } from "@/components/search-input";
 import { ResultsDisplay } from "@/components/results-display";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NotifySettings } from "@/components/notify-settings";
+import { UserMenu } from "@/components/user-menu";
 import { useDismissedNotams } from "@/hooks/use-dismissed-notams";
 import { UtcClock } from "@/components/utc-clock";
 import type { SearchParams, WeatherResponse } from "@/lib/types";
@@ -214,6 +215,7 @@ export default function Home() {
               dismissedIds={dismissedIds}
             />
             <ThemeToggle />
+            <UserMenu />
           </div>
         </div>
       </header>

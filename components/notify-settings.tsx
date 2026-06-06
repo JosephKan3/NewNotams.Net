@@ -1,11 +1,13 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { Bell, Send, CheckCircle, AlertCircle, ExternalLink, Copy, Check, BookmarkCheck, Calendar, Trash2, RefreshCw, Filter } from "lucide-react"
+import { useSession } from "next-auth/react"
+import { Bell, Send, CheckCircle, AlertCircle, ExternalLink, Copy, Check, BookmarkCheck, Calendar, Trash2, RefreshCw, Filter, Lock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { AuthDialog } from "@/components/auth-dialog"
 
 const STORAGE_KEY = "notify_settings_v3"
 
@@ -54,6 +56,9 @@ interface NotifySettingsProps {
 }
 
 export function NotifySettings({ currentQueryString, dismissedIds = [] }: NotifySettingsProps) {
+  const { status } = useSession()
+  const isAuthed = status === "authenticated"
+  const [authOpen, setAuthOpen] = useState(false)
   const [config, setConfig] = useState<NotifyConfig>(DEFAULT_CONFIG)
   const [sendStatus, setSendStatus] = useState<"idle" | "sending" | "ok" | "error">("idle")
   const [sendMessage, setSendMessage] = useState("")
@@ -107,6 +112,10 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
   }, [origin, config.topic, config.server, config.savedQuery])
 
   async function enableSchedule() {
+    if (!isAuthed) {
+      setAuthOpen(true)
+      return
+    }
     if (!config.topic.trim() || !config.savedQuery || !config.notifyHours.length) return
     setScheduleStatus("saving")
     setScheduleMessage("")
@@ -200,6 +209,7 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
   const canSchedule = !!config.topic.trim() && !!config.savedQuery && config.notifyHours.length > 0
 
   return (
+    <>
     <Dialog onOpenChange={() => { setSendStatus("idle"); setScheduleStatus("idle"); setScheduleMessage(""); setSendMessage("") }}>
       <DialogTrigger asChild>
         <Button variant="ghost" size="icon" title="Notification settings">
@@ -356,6 +366,11 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
                   {scheduleStatus === "removing" ? "Removing..." : "Disable scheduled notifications"}
                 </Button>
               </div>
+            ) : !isAuthed ? (
+              <Button variant="outline" className="gap-2 w-full" onClick={() => setAuthOpen(true)}>
+                <Lock className="h-3.5 w-3.5" />
+                Sign in to schedule notifications
+              </Button>
             ) : (
               <Button className="gap-2 w-full" disabled={!canSchedule || scheduleStatus === "saving"} onClick={enableSchedule}>
                 <Calendar className="h-3.5 w-3.5" />
@@ -406,5 +421,7 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
         </div>
       </DialogContent>
     </Dialog>
+    <AuthDialog open={authOpen} onOpenChange={setAuthOpen} reason="Sign in to schedule recurring notifications." />
+    </>
   )
 }
