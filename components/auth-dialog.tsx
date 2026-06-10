@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { signIn } from "next-auth/react"
 import { LogIn, AlertCircle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -14,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { Separator } from "@/components/ui/separator"
 import {
   loginAction,
   registerAction,
@@ -22,16 +24,30 @@ import {
 
 const INITIAL: AuthActionState = { ok: false, error: null }
 
+const PROVIDER_LABELS: Record<string, string> = {
+  google: "Google",
+  github: "GitHub",
+  apple: "Apple",
+  discord: "Discord",
+  facebook: "Facebook",
+  twitter: "Twitter / X",
+  "azure-ad": "Microsoft",
+  linkedin: "LinkedIn",
+  twitch: "Twitch",
+  spotify: "Spotify",
+}
+
 interface AuthDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Optional context message, e.g. "Sign in to schedule alerts." */
   reason?: string
 }
 
 export function AuthDialog({ open, onOpenChange, reason }: AuthDialogProps) {
   const router = useRouter()
   const [tab, setTab] = useState<"login" | "register">("login")
+  const [oauthProviders, setOauthProviders] = useState<string[]>([])
+  const [oauthPending, setOauthPending] = useState(false)
 
   const [loginState, loginSubmit, loginPending] = useActionState(
     loginAction,
@@ -42,13 +58,31 @@ export function AuthDialog({ open, onOpenChange, reason }: AuthDialogProps) {
     INITIAL,
   )
 
-  // Close + refresh when either action succeeds.
+  // Fetch available providers from next-auth once when dialog opens.
+  useEffect(() => {
+    if (!open) return
+    fetch("/api/auth/providers")
+      .then((r) => r.json())
+      .then((data: Record<string, { id: string; type: string }>) => {
+        const ids = Object.values(data)
+          .filter((p) => p.type !== "credentials")
+          .map((p) => p.id)
+        setOauthProviders(ids)
+      })
+      .catch(() => {})
+  }, [open])
+
   useEffect(() => {
     if (loginState.ok || registerState.ok) {
       onOpenChange(false)
       router.refresh()
     }
   }, [loginState.ok, registerState.ok, onOpenChange, router])
+
+  function handleOAuth(provider: string) {
+    setOauthPending(true)
+    signIn(provider, { callbackUrl: "/" })
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -64,10 +98,34 @@ export function AuthDialog({ open, onOpenChange, reason }: AuthDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
+        {/* OAuth provider buttons */}
+        {oauthProviders.length > 0 && (
+          <div className="space-y-2">
+            {oauthProviders.map((id) => (
+              <Button
+                key={id}
+                variant="outline"
+                className="w-full"
+                disabled={oauthPending}
+                onClick={() => handleOAuth(id)}
+              >
+                {oauthPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : null}
+                Continue with {PROVIDER_LABELS[id] ?? id}
+              </Button>
+            ))}
+            <div className="flex items-center gap-2 py-1">
+              <Separator className="flex-1" />
+              <span className="text-xs text-muted-foreground">or</span>
+              <Separator className="flex-1" />
+            </div>
+          </div>
+        )}
+
         <Tabs
           value={tab}
           onValueChange={(v) => setTab(v as "login" | "register")}
-          className="pt-2"
         >
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="login">Sign in</TabsTrigger>

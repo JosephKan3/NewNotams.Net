@@ -1,16 +1,11 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
-import type { DismissedNotamMeta } from "@/hooks/use-dismissed-notams"
+import { getKv } from "@/lib/kv"
+import type { DismissedNotamMeta } from "@/lib/types"
 
-/**
- * Per-user NOTAM dismissals.
- *
- * Requires an authenticated session; scoped to `session.user.id`.
- * Storage calls are TODOs for the backend.
- *
- *   GET  -> list this user's dismissals
- *   PUT  -> replace the full dismissal set ({ dismissed: DismissedNotamMeta[] })
- */
+function dismissalsKey(userId: string) {
+  return `dismissals:${userId}`
+}
 
 export async function GET() {
   const session = await auth()
@@ -18,9 +13,8 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  // TODO(backend): load dismissals for session.user.id
-  //   const dismissed = await getDismissals(session.user.id)
-  const dismissed: DismissedNotamMeta[] = []
+  const dismissed =
+    (await getKv().get<DismissedNotamMeta[]>(dismissalsKey(session.user.id))) ?? []
   return NextResponse.json({ dismissed })
 }
 
@@ -41,7 +35,6 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Missing dismissed array" }, { status: 400 })
   }
 
-  // TODO(backend): persist the full dismissal set for session.user.id
-  //   await setDismissals(session.user.id, body.dismissed)
+  await getKv().set(dismissalsKey(session.user.id), body.dismissed)
   return NextResponse.json({ ok: true })
 }

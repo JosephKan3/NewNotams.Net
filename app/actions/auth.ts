@@ -1,17 +1,13 @@
 "use server"
 
 import { signIn, signOut } from "@/auth"
-import { AuthError } from "next-auth"
+import { createUser, getUserByEmail } from "@/lib/user-store"
 
 export type AuthActionState = {
   ok: boolean
   error: string | null
 }
 
-/**
- * Sign in with email + password.
- * The actual credential verification happens in auth.ts `authorize`.
- */
 export async function loginAction(
   _prev: AuthActionState,
   formData: FormData,
@@ -30,20 +26,11 @@ export async function loginAction(
       redirect: false,
     })
     return { ok: true, error: null }
-  } catch (error) {
-    if (error instanceof AuthError) {
-      return { ok: false, error: "Invalid email or password." }
-    }
-    throw error
+  } catch {
+    return { ok: false, error: "Invalid email or password." }
   }
 }
 
-/**
- * Register a new account, then sign in.
- *
- * TODO(backend): create the user record (hash the password, store email)
- * before calling signIn. Until then this returns a friendly message.
- */
 export async function registerAction(
   _prev: AuthActionState,
   formData: FormData,
@@ -62,9 +49,15 @@ export async function registerAction(
     return { ok: false, error: "Passwords do not match." }
   }
 
-  // TODO(backend): persist the new user here, e.g.
-  //   await createUser({ email, passwordHash: await hash(password) })
-  // then fall through to signIn below.
+  try {
+    const existing = await getUserByEmail(email)
+    if (existing) {
+      return { ok: false, error: "An account with that email already exists." }
+    }
+    await createUser(email, password)
+  } catch {
+    return { ok: false, error: "Failed to create account. Please try again." }
+  }
 
   try {
     await signIn("credentials", {
@@ -73,15 +66,13 @@ export async function registerAction(
       redirect: false,
     })
     return { ok: true, error: null }
-  } catch (error) {
-    if (error instanceof AuthError) {
-      return {
-        ok: false,
-        error: "Account storage isn't connected yet. Please try again later.",
-      }
-    }
-    throw error
+  } catch {
+    return { ok: false, error: "Account created — please log in." }
   }
+}
+
+export async function oauthSignInAction(provider: string): Promise<void> {
+  await signIn(provider, { redirectTo: "/" })
 }
 
 export async function logoutAction(): Promise<void> {

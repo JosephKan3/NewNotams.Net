@@ -114,6 +114,12 @@ export interface NotamParsed {
   french: string | null
 }
 
+export interface DismissedNotamMeta {
+  id: string
+  raw: string
+  location: string | null
+}
+
 // Text product types
 export const TEXT_PRODUCT_TYPES = [
   "sigmet",

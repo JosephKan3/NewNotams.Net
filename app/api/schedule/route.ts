@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { Redis } from "@upstash/redis"
-
-const kv = new Redis({
-  url: process.env.KV_REST_API_URL!,
-  token: process.env.KV_REST_API_TOKEN!,
-})
+import { getKv } from "@/lib/kv"
 
 export interface ScheduleConfig {
   id: string
@@ -28,7 +23,7 @@ export async function GET(request: NextRequest) {
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 })
 
   try {
-    const config = await kv.get<ScheduleConfig>(scheduleKey(id))
+    const config = await getKv().get<ScheduleConfig>(scheduleKey(id))
     if (!config) return NextResponse.json({ error: "Schedule not found" }, { status: 404 })
     return NextResponse.json(config)
   } catch {
@@ -68,8 +63,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await kv.set(scheduleKey(id), config)
-    await kv.sadd(SCHEDULE_IDS_KEY, id)
+    await getKv().set(scheduleKey(id), config)
+    await getKv().sadd(SCHEDULE_IDS_KEY, id)
     return NextResponse.json({ ok: true, id })
   } catch {
     return NextResponse.json({ error: "KV unavailable — scheduled notifications require Vercel KV to be configured" }, { status: 503 })
@@ -89,9 +84,9 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
-    const existing = await kv.get<ScheduleConfig>(scheduleKey(id))
+    const existing = await getKv().get<ScheduleConfig>(scheduleKey(id))
     if (!existing) return NextResponse.json({ error: "Schedule not found" }, { status: 404 })
-    await kv.set(scheduleKey(id), { ...existing, dismissedIds: body.dismissedIds ?? [] })
+    await getKv().set(scheduleKey(id), { ...existing, dismissedIds: body.dismissedIds ?? [] })
     return NextResponse.json({ ok: true })
   } catch {
     return NextResponse.json({ error: "KV unavailable" }, { status: 503 })
@@ -104,8 +99,8 @@ export async function DELETE(request: NextRequest) {
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 })
 
   try {
-    await kv.del(scheduleKey(id))
-    await kv.srem(SCHEDULE_IDS_KEY, id)
+    await getKv().del(scheduleKey(id))
+    await getKv().srem(SCHEDULE_IDS_KEY, id)
     return NextResponse.json({ ok: true })
   } catch {
     return NextResponse.json({ error: "KV unavailable" }, { status: 503 })
@@ -114,11 +109,11 @@ export async function DELETE(request: NextRequest) {
 
 // Helper used by the cron job — get all schedules due at a given UTC hour
 export async function getSchedulesDueAt(utcHour: number): Promise<ScheduleConfig[]> {
-  const ids = await kv.smembers<string[]>(SCHEDULE_IDS_KEY)
+  const ids = await getKv().smembers<string[]>(SCHEDULE_IDS_KEY)
   if (!ids?.length) return []
 
   const configs = await Promise.all(
-    ids.map(id => kv.get<ScheduleConfig>(scheduleKey(id)))
+    ids.map(id => getKv().get<ScheduleConfig>(scheduleKey(id)))
   )
 
   return configs.filter(

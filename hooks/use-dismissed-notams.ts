@@ -2,15 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useSession } from "next-auth/react"
+import type { DismissedNotamMeta } from "@/lib/types"
 
 const STORAGE_KEY = "newnotams-dismissed-v2"
 const LEGACY_KEY = "newnotams-dismissed"
 
-export interface DismissedNotamMeta {
-  id: string
-  raw: string
-  location: string | null
-}
+// Re-export so existing imports from this file continue to work.
+export type { DismissedNotamMeta }
 
 function loadLocal(): Record<string, DismissedNotamMeta> {
   try {

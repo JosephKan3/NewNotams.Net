@@ -1,18 +1,15 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
+import { getKv } from "@/lib/kv"
 import type { SavedSearch } from "@/lib/saved-searches"
 
-/**
- * Per-user saved searches.
- *
- * All handlers require an authenticated session and are scoped to
- * `session.user.id`. The storage calls are left as TODOs for the backend —
- * wire them to your store (KV / Postgres) keyed by user id.
- *
- *   GET    -> list this user's saved searches
- *   POST   -> create/replace a saved search ({ search: SavedSearch })
- *   DELETE -> remove a saved search (?id=...)
- */
+function searchesKey(userId: string) {
+  return `searches:${userId}`
+}
+
+async function loadSearches(userId: string): Promise<SavedSearch[]> {
+  return (await getKv().get<SavedSearch[]>(searchesKey(userId))) ?? []
+}
 
 export async function GET() {
   const session = await auth()
@@ -20,9 +17,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  // TODO(backend): load saved searches for session.user.id
-  //   const searches = await getSavedSearches(session.user.id)
-  const searches: SavedSearch[] = []
+  const searches = await loadSearches(session.user.id)
   return NextResponse.json({ searches })
 }
 
@@ -44,8 +39,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing search data" }, { status: 400 })
   }
 
-  // TODO(backend): persist `search` for session.user.id
-  //   await upsertSavedSearch(session.user.id, search)
+  const existing = await loadSearches(session.user.id)
+  const updated = [...existing.filter((s) => s.id !== search.id), search]
+  await getKv().set(searchesKey(session.user.id), updated)
   return NextResponse.json({ ok: true, search })
 }
 
@@ -60,7 +56,8 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 })
   }
 
-  // TODO(backend): delete saved search `id` for session.user.id
-  //   await deleteSavedSearch(session.user.id, id)
+  const existing = await loadSearches(session.user.id)
+  const updated = existing.filter((s) => s.id !== id)
+  await getKv().set(searchesKey(session.user.id), updated)
   return NextResponse.json({ ok: true })
 }

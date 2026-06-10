@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSchedulesDueAt } from "@/app/api/schedule/route"
+import type { ScheduleConfig } from "@/app/api/schedule/route"
 
 interface NavCanadaItem {
   type: string
@@ -202,7 +203,7 @@ export async function GET(request: NextRequest) {
 
     const currentHour = new Date().getUTCHours()
 
-    let schedules
+    let schedules: ScheduleConfig[]
     try {
       schedules = await getSchedulesDueAt(currentHour)
     } catch {
