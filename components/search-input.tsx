@@ -167,7 +167,10 @@ export function SearchInput({ onSearch, isLoading }: SearchInputProps) {
       setRadiusEnabled(false)
       setRadiusValue("10")
     }
-  }, [])
+    if (recalled.sites.length > 0) {
+      onSearch(recalled)
+    }
+  }, [onSearch])
 
   const toggleProduct = useCallback((product: keyof SearchParams["products"]) => {
     setParams(prev => ({
