@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/auth"
 import { getKv } from "@/lib/kv"
 
 export interface ScheduleConfig {
   id: string
-  topic: string
-  server: string
+  userId: string
   notifyHours: number[]   // UTC hours to send, e.g. [6, 12, 18]
   savedQuery: string       // raw URLSearchParams query string
   dismissedIds?: string[]  // NOTAM IDs to exclude from notifications
@@ -17,14 +17,21 @@ function scheduleKey(id: string) {
   return `schedule:${id}`
 }
 
-// GET /api/schedule?id=... — fetch one schedule
+// GET /api/schedule?id=... — fetch one schedule (must belong to the caller)
 export async function GET(request: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const id = request.nextUrl.searchParams.get("id")
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 })
 
   try {
     const config = await getKv().get<ScheduleConfig>(scheduleKey(id))
-    if (!config) return NextResponse.json({ error: "Schedule not found" }, { status: 404 })
+    if (!config || config.userId !== session.user.id) {
+      return NextResponse.json({ error: "Schedule not found" }, { status: 404 })
+    }
     return NextResponse.json(config)
   } catch {
     return NextResponse.json({ error: "KV unavailable" }, { status: 503 })
@@ -33,6 +40,11 @@ export async function GET(request: NextRequest) {
 
 // POST /api/schedule — create or update a schedule
 export async function POST(request: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   let body: Partial<ScheduleConfig>
   try {
     body = await request.json()
@@ -40,10 +52,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   }
 
-  const { id, topic, server, notifyHours, savedQuery, dismissedIds } = body
+  const { id, notifyHours, savedQuery, dismissedIds } = body
 
-  if (!id || !topic?.trim()) {
-    return NextResponse.json({ error: "Missing required fields: id, topic" }, { status: 400 })
+  if (!id) {
+    return NextResponse.json({ error: "Missing required field: id" }, { status: 400 })
   }
   if (!notifyHours?.length) {
     return NextResponse.json({ error: "Select at least one notify hour" }, { status: 400 })
@@ -54,8 +66,7 @@ export async function POST(request: NextRequest) {
 
   const config: ScheduleConfig = {
     id,
-    topic: topic.trim(),
-    server: (server || "https://ntfy.sh").replace(/\/$/, ""),
+    userId: session.user.id,
     notifyHours,
     savedQuery,
     dismissedIds: dismissedIds ?? [],
@@ -73,6 +84,11 @@ export async function POST(request: NextRequest) {
 
 // PATCH /api/schedule?id=... — update dismissed IDs only
 export async function PATCH(request: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const id = request.nextUrl.searchParams.get("id")
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 })
 
@@ -85,7 +101,9 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const existing = await getKv().get<ScheduleConfig>(scheduleKey(id))
-    if (!existing) return NextResponse.json({ error: "Schedule not found" }, { status: 404 })
+    if (!existing || existing.userId !== session.user.id) {
+      return NextResponse.json({ error: "Schedule not found" }, { status: 404 })
+    }
     await getKv().set(scheduleKey(id), { ...existing, dismissedIds: body.dismissedIds ?? [] })
     return NextResponse.json({ ok: true })
   } catch {
@@ -95,10 +113,19 @@ export async function PATCH(request: NextRequest) {
 
 // DELETE /api/schedule?id=... — remove a schedule
 export async function DELETE(request: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const id = request.nextUrl.searchParams.get("id")
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 })
 
   try {
+    const existing = await getKv().get<ScheduleConfig>(scheduleKey(id))
+    if (existing && existing.userId !== session.user.id) {
+      return NextResponse.json({ error: "Schedule not found" }, { status: 404 })
+    }
     await getKv().del(scheduleKey(id))
     await getKv().srem(SCHEDULE_IDS_KEY, id)
     return NextResponse.json({ ok: true })

@@ -1,20 +1,18 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
-import { Bell, Send, CheckCircle, AlertCircle, ExternalLink, Copy, Check, BookmarkCheck, Calendar, Trash2, RefreshCw, Filter, Lock } from "lucide-react"
+import { Bell, BellRing, BellOff, Send, CheckCircle, AlertCircle, Check, BookmarkCheck, Calendar, Trash2, RefreshCw, Filter, Lock, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { AuthDialog } from "@/components/auth-dialog"
 
-const STORAGE_KEY = "notify_settings_v3"
+const STORAGE_KEY = "notify_settings_v4"
+const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || ""
 
 interface NotifyConfig {
   id: string          // UUID — identifies this user's schedule in KV
-  topic: string
-  server: string
   savedQuery: string
   notifyHours: number[]
   isScheduled: boolean
@@ -27,27 +25,21 @@ function makeId(): string {
 
 const DEFAULT_CONFIG: NotifyConfig = {
   id: "",
-  topic: "",
-  server: "https://ntfy.sh",
   savedQuery: "",
   notifyHours: [12],
   isScheduled: false,
   filterDismissed: false,
 }
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-  function copy() {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/")
+  const rawData = window.atob(base64)
+  const outputArray = new Uint8Array(rawData.length)
+  for (let i = 0; i < rawData.length; i++) {
+    outputArray[i] = rawData.charCodeAt(i)
   }
-  return (
-    <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={copy} title="Copy">
-      {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-    </Button>
-  )
+  return outputArray
 }
 
 interface NotifySettingsProps {
@@ -65,11 +57,14 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
   const [scheduleStatus, setScheduleStatus] = useState<"idle" | "saving" | "ok" | "error" | "removing">("idle")
   const [scheduleMessage, setScheduleMessage] = useState("")
   const [savedNow, setSavedNow] = useState(false)
-  const [origin, setOrigin] = useState("")
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "ok" | "error">("idle")
 
+  const [pushSupported, setPushSupported] = useState(false)
+  const [permission, setPermission] = useState<NotificationPermission>("default")
+  const [subscribed, setSubscribed] = useState(false)
+  const [subscribing, setSubscribing] = useState(false)
+
   useEffect(() => {
-    setOrigin(window.location.origin)
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
@@ -82,6 +77,20 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
       setConfig(prev => ({ ...prev, id: makeId() }))
     }
   }, [])
+
+  useEffect(() => {
+    const supported = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window
+    setPushSupported(supported)
+    if (!supported) return
+
+    setPermission(Notification.permission)
+    if (!isAuthed) return
+
+    navigator.serviceWorker.register("/sw.js").then(async (reg) => {
+      const sub = await reg.pushManager.getSubscription()
+      setSubscribed(!!sub)
+    }).catch(() => {})
+  }, [isAuthed])
 
   function save(next: NotifyConfig) {
     setConfig(next)
@@ -102,21 +111,69 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
     setTimeout(() => setSavedNow(false), 2000)
   }
 
-  // The manual notification URL (always works, no schedule required)
-  const notifyUrl = useMemo(() => {
-    if (!origin || !config.topic || !config.savedQuery) return ""
-    const base = new URLSearchParams(config.savedQuery)
-    base.set("topic", config.topic.trim())
-    if (config.server !== "https://ntfy.sh") base.set("server", config.server.trim())
-    return `${origin}/api/notify?${base.toString()}`
-  }, [origin, config.topic, config.server, config.savedQuery])
+  async function enableNotifications() {
+    if (!isAuthed) {
+      setAuthOpen(true)
+      return
+    }
+    setSubscribing(true)
+    try {
+      const perm = await Notification.requestPermission()
+      setPermission(perm)
+      if (perm !== "granted") return
+
+      const reg = await navigator.serviceWorker.register("/sw.js")
+      await navigator.serviceWorker.ready
+
+      let sub = await reg.pushManager.getSubscription()
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        })
+      }
+
+      await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: sub.toJSON() }),
+      })
+      setSubscribed(true)
+    } catch {
+      // permission denied or subscription failed — leave state as-is
+    } finally {
+      setSubscribing(false)
+    }
+  }
+
+  async function disableNotifications() {
+    setSubscribing(true)
+    try {
+      const reg = await navigator.serviceWorker.getRegistration()
+      const sub = await reg?.pushManager.getSubscription()
+      if (sub) {
+        await fetch("/api/push/subscribe", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: sub.endpoint }),
+        })
+        await sub.unsubscribe()
+      }
+      setSubscribed(false)
+      if (config.isScheduled) {
+        await removeSchedule()
+      }
+    } finally {
+      setSubscribing(false)
+    }
+  }
 
   async function enableSchedule() {
     if (!isAuthed) {
       setAuthOpen(true)
       return
     }
-    if (!config.topic.trim() || !config.savedQuery || !config.notifyHours.length) return
+    if (!subscribed || !config.savedQuery || !config.notifyHours.length) return
     setScheduleStatus("saving")
     setScheduleMessage("")
     try {
@@ -125,8 +182,6 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: config.id,
-          topic: config.topic.trim(),
-          server: config.server.replace(/\/$/, ""),
           notifyHours: config.notifyHours,
           savedQuery: config.savedQuery,
           dismissedIds: config.filterDismissed ? dismissedIds : [],
@@ -176,18 +231,27 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
   }
 
   async function sendNow() {
-    if (!config.topic.trim() || !config.savedQuery) {
+    if (!subscribed) {
       setSendStatus("error")
-      setSendMessage(!config.topic ? "Enter an ntfy topic first." : "Save a search first.")
+      setSendMessage("Enable notifications first.")
+      return
+    }
+    if (!config.savedQuery) {
+      setSendStatus("error")
+      setSendMessage("Save a search first.")
       return
     }
     setSendStatus("sending")
     setSendMessage("")
-    const base = new URLSearchParams(config.savedQuery)
-    base.set("topic", config.topic.trim())
-    if (config.server !== "https://ntfy.sh") base.set("server", config.server.trim())
     try {
-      const res = await fetch(`/api/notify?${base.toString()}`)
+      const res = await fetch("/api/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          savedQuery: config.savedQuery,
+          dismissedIds: config.filterDismissed ? dismissedIds : [],
+        }),
+      })
       const json = await res.json()
       if (res.ok) {
         setSendStatus("ok")
@@ -206,7 +270,7 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
     ? new URLSearchParams(config.savedQuery).getAll("site").join(", ")
     : ""
 
-  const canSchedule = !!config.topic.trim() && !!config.savedQuery && config.notifyHours.length > 0
+  const canSchedule = subscribed && !!config.savedQuery && config.notifyHours.length > 0
 
   return (
     <>
@@ -233,31 +297,42 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
 
         <div className="space-y-5 pt-2 min-w-0">
 
-          {/* Step 1 — ntfy topic */}
+          {/* Step 1 — Enable browser notifications */}
           <div className="space-y-1.5">
-            <Label htmlFor="ntfy-topic" className="flex items-center gap-1.5">
+            <Label className="flex items-center gap-1.5">
               <span className="text-muted-foreground text-xs bg-muted rounded-full px-1.5 py-0.5">1</span>
-              ntfy.sh topic
-              <a href="https://ntfy.sh" target="_blank" rel="noopener noreferrer"
-                className="text-muted-foreground hover:text-foreground">
-                <ExternalLink className="h-3 w-3" />
-              </a>
+              Enable notifications on this device
             </Label>
-            <Input
-              id="ntfy-topic"
-              placeholder="e.g. my-notam-alerts-abc123"
-              value={config.topic}
-              onChange={e => save({ ...config, topic: e.target.value, isScheduled: false })}
-            />
-            <Input
-              placeholder="Server (default: https://ntfy.sh)"
-              value={config.server}
-              onChange={e => save({ ...config, server: e.target.value, isScheduled: false })}
-              className="text-xs"
-            />
-            <p className="text-xs text-muted-foreground">
-              Install the free <strong>ntfy</strong> app, subscribe to your topic using the server above.
-            </p>
+            {!pushSupported ? (
+              <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                Push notifications aren&apos;t supported in this browser.
+              </div>
+            ) : !isAuthed ? (
+              <Button variant="outline" className="gap-2 w-full" onClick={() => setAuthOpen(true)}>
+                <Lock className="h-3.5 w-3.5" />
+                Sign in to enable notifications
+              </Button>
+            ) : permission === "denied" ? (
+              <div className="rounded-md border border-dashed border-destructive/50 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                Notifications are blocked for this site. Enable them in your browser settings.
+              </div>
+            ) : subscribed ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 rounded-md border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30 px-3 py-2 text-xs text-green-700 dark:text-green-400">
+                  <BellRing className="h-3.5 w-3.5 shrink-0" />
+                  Notifications enabled on this device
+                </div>
+                <Button variant="outline" size="sm" className="gap-1.5 w-full" disabled={subscribing} onClick={disableNotifications}>
+                  {subscribing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BellOff className="h-3.5 w-3.5" />}
+                  Disable notifications
+                </Button>
+              </div>
+            ) : (
+              <Button className="gap-2 w-full" disabled={subscribing} onClick={enableNotifications}>
+                {subscribing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BellRing className="h-3.5 w-3.5" />}
+                {subscribing ? "Enabling..." : "Enable notifications"}
+              </Button>
+            )}
           </div>
 
           {/* Step 2 — Save search */}
@@ -394,14 +469,6 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
           {/* Manual / Send now */}
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground font-medium">Send now (manual)</p>
-            {notifyUrl && (
-              <div className="flex items-center gap-1.5 min-w-0">
-                <code className="flex-1 min-w-0 block rounded border border-border bg-muted/40 px-2 py-1.5 text-xs font-mono truncate overflow-hidden">
-                  {notifyUrl}
-                </code>
-                <CopyButton text={notifyUrl} />
-              </div>
-            )}
             <Button onClick={sendNow} disabled={sendStatus === "sending"} variant="outline" className="gap-2 w-full">
               <Send className="h-3.5 w-3.5" />
               {sendStatus === "sending" ? "Sending..." : "Send Test Notification"}
@@ -421,7 +488,7 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
         </div>
       </DialogContent>
     </Dialog>
-    <AuthDialog open={authOpen} onOpenChange={setAuthOpen} reason="Sign in to schedule recurring notifications." />
+    <AuthDialog open={authOpen} onOpenChange={setAuthOpen} reason="Sign in to enable push notifications." />
     </>
   )
 }
