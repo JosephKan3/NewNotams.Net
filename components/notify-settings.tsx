@@ -12,19 +12,13 @@ const STORAGE_KEY = "notify_settings_v4"
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || ""
 
 interface NotifyConfig {
-  id: string          // UUID — identifies this user's schedule in KV
   savedQuery: string
   notifyHours: number[]
   isScheduled: boolean
   filterDismissed: boolean
 }
 
-function makeId(): string {
-  return crypto.randomUUID()
-}
-
 const DEFAULT_CONFIG: NotifyConfig = {
-  id: "",
   savedQuery: "",
   notifyHours: [12],
   isScheduled: false,
@@ -69,12 +63,10 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
         const stored = JSON.parse(raw) as NotifyConfig
-        setConfig({ ...DEFAULT_CONFIG, ...stored, id: stored.id || makeId() })
-      } else {
-        setConfig(prev => ({ ...prev, id: makeId() }))
+        setConfig({ ...DEFAULT_CONFIG, ...stored })
       }
     } catch {
-      setConfig(prev => ({ ...prev, id: makeId() }))
+      // ignore malformed local config
     }
   }, [])
 
@@ -90,6 +82,36 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
       const sub = await reg.pushManager.getSubscription()
       setSubscribed(!!sub)
     }).catch(() => {})
+  }, [isAuthed])
+
+  // Pull the user's existing schedule from the server so settings stay in
+  // sync across devices signed into the same account.
+  useEffect(() => {
+    if (!isAuthed) return
+    let cancelled = false
+
+    fetch("/api/schedule")
+      .then(async (res) => {
+        if (cancelled) return
+        if (res.ok) {
+          const remote = await res.json() as {
+            savedQuery: string
+            notifyHours: number[]
+            filterDismissed?: boolean
+          }
+          save({
+            savedQuery: remote.savedQuery,
+            notifyHours: remote.notifyHours,
+            filterDismissed: remote.filterDismissed ?? false,
+            isScheduled: true,
+          })
+        }
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
   }, [isAuthed])
 
   function save(next: NotifyConfig) {
@@ -181,10 +203,10 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: config.id,
           notifyHours: config.notifyHours,
           savedQuery: config.savedQuery,
           dismissedIds: config.filterDismissed ? dismissedIds : [],
+          filterDismissed: config.filterDismissed,
         }),
       })
       const json = await res.json()
@@ -205,7 +227,7 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
   async function syncDismissed() {
     setSyncStatus("syncing")
     try {
-      const res = await fetch(`/api/schedule?id=${config.id}`, {
+      const res = await fetch("/api/schedule", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ dismissedIds }),
@@ -220,7 +242,7 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
   async function removeSchedule() {
     setScheduleStatus("removing")
     try {
-      await fetch(`/api/schedule?id=${config.id}`, { method: "DELETE" })
+      await fetch("/api/schedule", { method: "DELETE" })
       save({ ...config, isScheduled: false })
       setScheduleStatus("idle")
       setScheduleMessage("")
