@@ -109,10 +109,15 @@ function WeatherCard({ item, formatEnabled }: { item: WeatherData; formatEnabled
 // Minimal date formatting: add separators to recognizable date patterns
 // YYMMDDHHMMM → yyyy-MM-dd HH:MM  (e.g., 2606031420 → 2026-06-03 14:20)
 // DDHHMMZ     → DD HH:MMZ          (e.g., 031440Z    → 03 14:40Z)
+// FMDDHHMM    → FMDD HH:MMZ        (e.g., FM120200   → FM12 02:00Z)
+// DDHH/DDHH   → DD HH:00Z/DD HH:00Z (e.g., 1211/1213  → 12 11:00Z/12 13:00Z)
+//               used by BECMG, TEMPO, and PROBnn change groups
 function formatDates(text: string): string {
   return text
+    .replace(/\bFM(\d{2})(\d{2})(\d{2})\b/g, "FM$1 $2:$3Z")
     .replace(/\b(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\b/g, "20$1-$2-$3 $4:$5")
     .replace(/\b(\d{2})(\d{2})(\d{2})Z\b/g, "$1 $2:$3Z")
+    .replace(/\b(\d{2})(\d{2})\/(\d{2})(\d{2})\b/g, "$1 $2:00Z/$3 $4:00Z")
 }
 
 // Upper Wind altitude columns (in feet)
