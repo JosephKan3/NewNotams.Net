@@ -1,5 +1,5 @@
 import { getKv } from "@/lib/kv"
-import { scrypt, randomBytes, timingSafeEqual, randomUUID } from "crypto"
+import { scrypt, randomBytes, timingSafeEqual, randomUUID, createHash } from "crypto"
 import { promisify } from "util"
 
 const scryptAsync = promisify(scrypt)
@@ -60,15 +60,25 @@ export async function createUser(email: string, password: string): Promise<Store
 }
 
 // Used by OAuth sign-ins: finds existing user by email or creates one (no password).
+//
+// The id is derived deterministically from the email (rather than a random
+// UUID) so that the same OAuth account always maps to the same id — and
+// therefore the same searches:/dismissals:/schedule: keys — even if the
+// user_email -> id lookup record is ever missing. This also self-heals that
+// lookup record on every sign-in.
 export async function findOrCreateOAuthUser(
   email: string,
   name: string | null,
 ): Promise<StoredUser> {
   const normalizedEmail = email.toLowerCase()
-  const existing = await getUserByEmail(normalizedEmail)
-  if (existing) return existing
+  const id = createHash("sha256").update(normalizedEmail).digest("hex")
 
-  const id = randomUUID()
+  const existing = await getKv().get<StoredUser>(userKey(id))
+  if (existing) {
+    await getKv().set(emailKey(normalizedEmail), id)
+    return existing
+  }
+
   const user: StoredUser = {
     id,
     email: normalizedEmail,
