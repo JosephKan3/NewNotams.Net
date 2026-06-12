@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useTransition } from "react"
-import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
 import { LogIn, LogOut, User, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -24,14 +23,17 @@ function initialsFromEmail(email?: string | null) {
 
 export function UserMenu() {
   const { data: session, status } = useSession()
-  const router = useRouter()
   const [authOpen, setAuthOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
 
   function handleSignOut() {
     startTransition(async () => {
       await logoutAction()
-      router.refresh()
+      // Reload so the client SessionProvider re-initializes from the cleared
+      // session cookie — server actions don't update useSession() in place,
+      // which left the dismissals/saved-searches/schedule hooks pointed at
+      // the signed-out account's "user" data source.
+      window.location.reload()
     })
   }
 

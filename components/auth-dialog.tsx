@@ -1,7 +1,6 @@
 "use client"
 
 import { useActionState, useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
 import { signIn } from "next-auth/react"
 import { LogIn, AlertCircle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -44,7 +43,6 @@ interface AuthDialogProps {
 }
 
 export function AuthDialog({ open, onOpenChange, reason }: AuthDialogProps) {
-  const router = useRouter()
   const [tab, setTab] = useState<"login" | "register">("login")
   const [oauthProviders, setOauthProviders] = useState<string[]>([])
   const [oauthPending, setOauthPending] = useState(false)
@@ -75,9 +73,13 @@ export function AuthDialog({ open, onOpenChange, reason }: AuthDialogProps) {
   useEffect(() => {
     if (loginState.ok || registerState.ok) {
       onOpenChange(false)
-      router.refresh()
+      // Server actions don't update the client SessionProvider in place, so
+      // useSession() (and the dismissals/saved-searches/schedule sync hooks)
+      // would keep reading the signed-out state. Reload so they re-initialize
+      // against the new session cookie.
+      window.location.reload()
     }
-  }, [loginState.ok, registerState.ok, onOpenChange, router])
+  }, [loginState.ok, registerState.ok, onOpenChange])
 
   function handleOAuth(provider: string) {
     setOauthPending(true)
