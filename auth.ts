@@ -104,9 +104,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   callbacks: {
     async signIn({ user, account }) {
-      // For OAuth sign-ins, find or create a Redis user keyed by email,
-      // then override user.id so our internal ID ends up in the JWT.
-      if (account?.type === "oauth" && user.email) {
+      // For OAuth/OIDC sign-ins (e.g. Google is "oidc"), find or create a
+      // Redis user keyed by email, then override user.id so our internal ID
+      // ends up in the JWT. Auth.js otherwise assigns a fresh random UUID to
+      // user.id on every sign-in, which broke per-account data sync.
+      if ((account?.type === "oauth" || account?.type === "oidc") && user.email) {
         try {
           const stored = await findOrCreateOAuthUser(user.email, user.name ?? null)
           user.id = stored.id
