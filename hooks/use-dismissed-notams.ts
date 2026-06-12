@@ -39,6 +39,10 @@ export function useDismissedNotams() {
   // Tracks the backend we last loaded from, so the persistence effect
   // doesn't write guest data to the user's account (or vice versa).
   const sourceRef = useRef<"local" | "user" | null>(null)
+  // Suppresses the persistence effect for the load that just happened, so we
+  // don't immediately re-write the data we just fetched (e.g. an empty PUT
+  // to /api/dismissals on every login).
+  const skipNextPersistRef = useRef(false)
 
   // Load from the active backend whenever auth status settles.
   useEffect(() => {
@@ -56,18 +60,21 @@ export function useDismissedNotams() {
             if (!cancelled) {
               setDismissed(map)
               sourceRef.current = "user"
+              skipNextPersistRef.current = true
             }
           }
         } catch {
           if (!cancelled) {
             setDismissed({})
             sourceRef.current = "user"
+            skipNextPersistRef.current = true
           }
         }
       } else {
         if (!cancelled) {
           setDismissed(loadLocal())
           sourceRef.current = "local"
+          skipNextPersistRef.current = true
         }
       }
       if (!cancelled) setIsLoaded(true)
@@ -82,6 +89,10 @@ export function useDismissedNotams() {
   // Persist to the active backend.
   useEffect(() => {
     if (!isLoaded || sourceRef.current === null) return
+    if (skipNextPersistRef.current) {
+      skipNextPersistRef.current = false
+      return
+    }
 
     if (sourceRef.current === "local") {
       try {
