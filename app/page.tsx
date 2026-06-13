@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { Github } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/search-input";
 import { ResultsDisplay } from "@/components/results-display";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -216,6 +217,16 @@ export default function Home() {
               dismissedIds={dismissedIds}
             />
             <ThemeToggle />
+            <Button variant="outline" size="icon" asChild>
+              <a
+                href="https://github.com/JosephKan3/NewNotams.Net"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Github className="h-[1.2rem] w-[1.2rem]" />
+                <span className="sr-only">View source on GitHub</span>
+              </a>
+            </Button>
             <UserMenu />
           </div>
         </div>
