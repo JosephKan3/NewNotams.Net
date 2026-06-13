@@ -114,6 +114,12 @@ export interface NotamParsed {
   french: string | null
 }
 
+export interface DismissedNotamMeta {
+  id: string
+  raw: string
+  location: string | null
+}
+
 // Text product types
 export const TEXT_PRODUCT_TYPES = [
   "sigmet",
@@ -230,18 +236,29 @@ export function isImageProduct(type: string): boolean {
 // Only uses the most recent frame_list (latest start validity)
 export function extractImageIds(data: ImageProductData): { id: number; sv: string; ev: string }[] {
   const images: { id: number; sv: string; ev: string }[] = []
+<<<<<<< HEAD
   
   if (data.frame_lists.length === 0) return images
   
+=======
+
+  if (data.frame_lists.length === 0) return images
+
+>>>>>>> ea414d4c4fa3af15ecaf84c980ba16b0089ad78e
   // Find the most recent frame_list by start validity
   const latestFrameList = data.frame_lists.reduce((latest, current) => {
     const latestDate = new Date(latest.sv)
     const currentDate = new Date(current.sv)
     return currentDate > latestDate ? current : latest
   })
+<<<<<<< HEAD
   
   for (const frame of latestFrameList.frames) {
     // Get the latest image for each frame
+=======
+
+  for (const frame of latestFrameList.frames) {
+>>>>>>> ea414d4c4fa3af15ecaf84c980ba16b0089ad78e
     if (frame.images.length > 0) {
       const latestImage = frame.images[frame.images.length - 1]
       images.push({
@@ -251,6 +268,6 @@ export function extractImageIds(data: ImageProductData): { id: number; sv: strin
       })
     }
   }
-  
+
   return images
 }

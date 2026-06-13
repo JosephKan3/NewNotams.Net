@@ -1,26 +1,27 @@
 "use client"
 
 import { useMemo, useState, useEffect } from "react"
-import { Eye, EyeOff, RotateCcw, X, ExternalLink, ChevronLeft, ChevronRight, Play, Pause, ZoomIn, ZoomOut } from "lucide-react"
+import { Eye, EyeOff, RotateCcw, X, ExternalLink, ChevronLeft, ChevronRight, Play, Pause, ZoomIn, ZoomOut, Wand2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import type { WeatherData, WeatherResponse, ImageProductData } from "@/lib/types"
 import { parseNotamText, parseNotamId, PRODUCT_LABELS, parseImageProductData, extractImageIds } from "@/lib/types"
+import type { DismissedNotamMeta } from "@/hooks/use-dismissed-notams"
+import { UtcClock } from "@/components/utc-clock"
 
 interface ResultsDisplayProps {
   data: WeatherResponse | null
-  dismissedIds: string[]
-  onDismiss: (id: string) => void
+  dismissedNotams: DismissedNotamMeta[]
+  onDismiss: (id: string, raw: string, location: string | null) => void
   onRestore: (id: string) => void
   onRestoreAll: () => void
   isDismissed: (id: string) => boolean
 }
 
-// Order for displaying products
+// Order for displaying products — NOTAMs rendered separately at the very bottom
 const PRODUCT_ORDER = [
-  // Text products first
   "sigmet",
   "airmet",
   "metar",
@@ -33,31 +34,53 @@ const PRODUCT_ORDER = [
   "notam",
 ]
 
+function JumpToLegend({ sections }: { sections: { id: string; label: string; count?: number }[] }) {
+  if (sections.length === 0) return null
+  return (
+    <div className="flex flex-wrap items-center gap-2 sticky top-0 z-10 bg-background/95 backdrop-blur-sm py-2 -mx-4 px-4 border-b border-border">
+      <span className="text-xs text-muted-foreground shrink-0">Jump to:</span>
+      {sections.map(s => (
+        <a
+          key={s.id}
+          href={`#${s.id}`}
+          className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs font-medium hover:bg-muted transition-colors"
+        >
+          {s.label}
+          {s.count !== undefined && (
+            <span className="text-muted-foreground">({s.count})</span>
+          )}
+        </a>
+      ))}
+      <UtcClock className="ml-auto font-mono text-xs tabular-nums text-muted-foreground" />
+    </div>
+  )
+}
+
+
 function NotamCard({
   item,
   onDismiss,
-  isDismissed,
+  formatEnabled,
 }: {
   item: WeatherData
-  onDismiss: (id: string) => void
-  isDismissed: boolean
+  onDismiss: (id: string, raw: string, location: string | null) => void
+  formatEnabled: boolean
 }) {
   const parsed = parseNotamText(item.text)
   const notamId = parsed?.id || parseNotamId(item.text) || item.pk
-
-  if (isDismissed) return null
+  const raw = parsed?.raw || item.text
 
   return (
     <div className="group relative border-b border-border px-3 py-3 last:border-b-0">
-      <div className="flex items-start gap-3">
-        <pre className="flex-1 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
-          {parsed?.raw || item.text}
+      <div className="flex items-start gap-3 min-w-0">
+        <pre className="flex-1 min-w-0 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
+          {formatEnabled ? formatDates(raw) : raw}
         </pre>
         <Button
           variant="ghost"
           size="icon"
           className="h-6 w-6 shrink-0 opacity-50 hover:opacity-100"
-          onClick={() => onDismiss(notamId)}
+          onClick={() => onDismiss(notamId, raw, item.location)}
           title="Dismiss this NOTAM"
         >
           <X className="h-3 w-3" />
@@ -67,25 +90,36 @@ function NotamCard({
   )
 }
 
-function WeatherCard({ item }: { item: WeatherData }) {
-  // Try to parse the text as JSON to extract raw content
+function WeatherCard({ item, formatEnabled }: { item: WeatherData; formatEnabled: boolean }) {
   let displayText = item.text
   try {
     const parsed = JSON.parse(item.text)
-    if (parsed.raw) {
-      displayText = parsed.raw
-    }
+    if (parsed.raw) displayText = parsed.raw
   } catch {
     // Use text as-is
   }
 
   return (
-    <div className="border-b border-border px-3 py-3 last:border-b-0">
-      <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed">
-        {displayText}
+    <div className="border-b border-border px-3 py-3 last:border-b-0 min-w-0">
+      <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed min-w-0">
+        {formatEnabled ? formatDates(displayText) : displayText}
       </pre>
     </div>
   )
+}
+
+// Minimal date formatting: add separators to recognizable date patterns
+// YYMMDDHHMMM → yyyy-MM-dd HH:MM  (e.g., 2606031420 → 2026-06-03 14:20)
+// DDHHMMZ     → DD HH:MMZ          (e.g., 031440Z    → 03 14:40Z)
+// FMDDHHMM    → FMDD HH:MMZ        (e.g., FM120200   → FM12 02:00Z)
+// DDHH/DDHH   → DD HH:00Z/DD HH:00Z (e.g., 1211/1213  → 12 11:00Z/12 13:00Z)
+//               used by BECMG, TEMPO, and PROBnn change groups
+function formatDates(text: string): string {
+  return text
+    .replace(/\bFM(\d{2})(\d{2})(\d{2})\b/g, "FM$1 $2:$3Z")
+    .replace(/\b(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\b/g, "20$1-$2-$3 $4:$5")
+    .replace(/\b(\d{2})(\d{2})(\d{2})Z\b/g, "$1 $2:$3Z")
+    .replace(/\b(\d{2})(\d{2})\/(\d{2})(\d{2})\b/g, "$1 $2:00Z/$3 $4:00Z")
 }
 
 // Upper Wind altitude columns (in feet)
@@ -99,8 +133,8 @@ type WindDataEntry = [number, number, number?, number?]
 
 // Parse upper wind JSON data
 // Format: ["FBCN35", "KWNO", "issue_time", "start_validity", "end_validity", "use_start", "use_end", null, null, null, null, [[altitude, dir, speed, temp], ...]]
-function parseUpperWindData(text: string): { 
-  windData: Record<number, { dir: number; speed: number; temp?: number }>;
+function parseUpperWindData(text: string): {
+  windData: Record<number, { dir: number | null; speed: number; temp?: number | null }>;
   validity: string;
   useTime: string;
   source: string;
@@ -130,17 +164,17 @@ function parseUpperWindData(text: string): {
     // Format use time (e.g., "12-00")
     const useStartDate = new Date(useStart)
     const useEndDate = new Date(useEnd)
-    const useTimeStr = `${useStartDate.getUTCHours().toString().padStart(2, '0')}-${useEndDate.getUTCHours().toString().padStart(2, '0')}`
+    const useTimeStr = `${useStartDate.getUTCHours().toString().padStart(2, '0')}:00Z-${useEndDate.getUTCHours().toString().padStart(2, '0')}:00Z`
     
     // Parse wind data into altitude-keyed object
-    const windData: Record<number, { dir: number; speed: number; temp?: number }> = {}
+    const windData: Record<number, { dir: number | null; speed: number; temp?: number | null }> = {}
     for (const entry of windArray) {
       if (Array.isArray(entry) && entry.length >= 2) {
         const [altitude, direction, speed, temp] = entry
-        windData[altitude] = { 
-          dir: direction, 
-          speed: speed ?? 0, 
-          temp: temp 
+        windData[altitude] = {
+          dir: direction ?? null,
+          speed: speed ?? 0,
+          temp: temp ?? null,
         }
       }
     }
@@ -152,12 +186,12 @@ function parseUpperWindData(text: string): {
 }
 
 // Format wind value for display (e.g., "250 46 +9" or "250 46")
-function formatWindValue(data: { dir: number; speed: number; temp?: number } | undefined): string {
+function formatWindValue(data: { dir: number | null; speed: number; temp?: number | null } | undefined): string {
   if (!data) return "-"
   const { dir, speed, temp } = data
-  const dirStr = dir.toString().padStart(3, '0')
+  const dirStr = dir != null ? dir.toString().padStart(3, '0') : "---"
   const speedStr = speed.toString().padStart(2, ' ')
-  if (temp !== undefined && temp !== null) {
+  if (temp != null) {
     const tempSign = temp >= 0 ? '+' : ''
     return `${dirStr} ${speedStr} ${tempSign}${temp}`
   }
@@ -171,7 +205,7 @@ function UpperWindSection({ items }: { items: WeatherData[] }) {
     interface WindGroup {
       validity: string
       useTime: string
-      entries: { location: string; windData: Record<number, { dir: number; speed: number; temp?: number }> }[]
+      entries: { location: string; windData: Record<number, { dir: number | null; speed: number; temp?: number | null }> }[]
     }
     const groups: Record<string, WindGroup> = {}
     
@@ -262,8 +296,12 @@ function UpperWindSection({ items }: { items: WeatherData[] }) {
 // Note: Nav Canada timestamps don't include "Z" suffix but ARE UTC times
 function formatValidityTime(timestamp: string): string {
   if (!timestamp) return ""
+<<<<<<< HEAD
   // Parse the timestamp directly without timezone conversion
   // The format is YYYY-MM-DDTHH:MM:SS (already UTC, just missing Z)
+=======
+  // Parse directly — format is YYYY-MM-DDTHH:MM:SS (UTC, missing Z suffix)
+>>>>>>> ea414d4c4fa3af15ecaf84c980ba16b0089ad78e
   const match = timestamp.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
   if (!match) return ""
   const [, , month, day, hours, minutes] = match
@@ -468,7 +506,7 @@ function DismissedNotamsSection({
   onRestore,
   onRestoreAll,
 }: {
-  dismissedNotams: { id: string; location: string; text: string }[]
+  dismissedNotams: DismissedNotamMeta[]
   onRestore: (id: string) => void
   onRestoreAll: () => void
 }) {
@@ -492,12 +530,12 @@ function DismissedNotamsSection({
           Restore All
         </Button>
       </div>
-      <CollapsibleContent className="mt-3 border rounded-lg divide-y divide-border">
+      <CollapsibleContent className="mt-3 border rounded-lg divide-y divide-border overflow-hidden">
         {dismissedNotams.map((notam) => (
           <div key={notam.id} className="px-3 py-3 opacity-60 hover:opacity-80">
-            <div className="flex items-start gap-3">
-              <pre className="flex-1 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed line-clamp-3">
-                {notam.text}
+            <div className="flex items-start gap-3 min-w-0">
+              <pre className="flex-1 min-w-0 whitespace-pre-wrap font-mono text-sm text-muted-foreground leading-relaxed line-clamp-3">
+                {notam.raw || notam.id}
               </pre>
               <Button
                 variant="ghost"
@@ -530,19 +568,32 @@ function isImageProductItem(item: WeatherData): boolean {
 
 export function ResultsDisplay({
   data,
-  dismissedIds,
+  dismissedNotams,
   onDismiss,
   onRestore,
   onRestoreAll,
   isDismissed,
 }: ResultsDisplayProps) {
+  const [dateFormatEnabled, setDateFormatEnabled] = useState(() => {
+    if (typeof window === "undefined") return false
+    return localStorage.getItem("dateFormatEnabled") === "true"
+  })
+
+  function toggleDateFormat() {
+    setDateFormatEnabled(prev => {
+      const next = !prev
+      localStorage.setItem("dateFormatEnabled", String(next))
+      return next
+    })
+  }
+
   // Separate text and image products
   const { textProducts, imageProducts } = useMemo(() => {
     if (!data?.data) return { textProducts: {}, imageProducts: [] }
-    
+
     const textGroups: Record<string, WeatherData[]> = {}
     const images: { item: WeatherData; parsed: ImageProductData }[] = []
-    
+
     for (const item of data.data) {
       if (isImageProductItem(item)) {
         const parsed = parseImageProductData(item.text)
@@ -557,35 +608,20 @@ export function ResultsDisplay({
         textGroups[type].push(item)
       }
     }
-    
+
     return { textProducts: textGroups, imageProducts: images }
   }, [data])
 
-  // Get dismissed NOTAMs that were in the current results
-  const dismissedNotams = useMemo(() => {
-    const notams = textProducts.notam || []
-    return notams
-      .map(item => {
-        const parsed = parseNotamText(item.text)
-        const id = parsed?.id || parseNotamId(item.text) || item.pk
-        return {
-          id,
-          location: item.location,
-          text: parsed?.raw || item.text,
-        }
-      })
-      .filter(notam => dismissedIds.includes(notam.id))
-  }, [textProducts.notam, dismissedIds])
-
-  // Count visible NOTAMs
-  const visibleNotamCount = useMemo(() => {
-    const notams = textProducts.notam || []
-    return notams.filter(item => {
+  // NOTAMs visible in the current results (globally dismissed ones are filtered out)
+  const visibleNotams = useMemo(() => {
+    return (textProducts.notam || []).filter(item => {
       const parsed = parseNotamText(item.text)
       const id = parsed?.id || parseNotamId(item.text) || item.pk
       return !isDismissed(id)
-    }).length
+    })
   }, [textProducts.notam, isDismissed])
+
+  const visibleNotamCount = visibleNotams.length
 
   if (!data) {
     return (
@@ -603,8 +639,9 @@ export function ResultsDisplay({
     )
   }
 
-  // Get text product types that have data, sorted by PRODUCT_ORDER
+  // Non-NOTAM text product types, sorted by PRODUCT_ORDER
   const textProductTypes = Object.keys(textProducts)
+    .filter(t => t !== "notam")
     .sort((a, b) => {
       const aIndex = PRODUCT_ORDER.indexOf(a)
       const bIndex = PRODUCT_ORDER.indexOf(b)
@@ -614,10 +651,23 @@ export function ResultsDisplay({
       return aIndex - bIndex
     })
 
+  // Build legend sections (in render order: text → images → notams)
+  const legendSections = [
+    ...textProductTypes.map(type => ({
+      id: `section-${type}`,
+      label: PRODUCT_LABELS[type] || type.toUpperCase(),
+    })),
+    ...(imageProducts.length > 0 ? [{ id: "section-images", label: "Graphical Products", count: imageProducts.length }] : []),
+    ...(textProducts.notam?.length ? [{ id: "section-notam", label: "NOTAMs", count: visibleNotamCount }] : []),
+  ]
+
   return (
     <div className="space-y-6">
+      {/* Jump-to legend */}
+      <JumpToLegend sections={legendSections} />
+
       {/* Summary */}
-      <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
         <span>Results:</span>
         {Object.entries(data.meta.count).map(([type, count]) => {
           const label = PRODUCT_LABELS[type.toLowerCase()] || PRODUCT_LABELS[type] || type
@@ -626,11 +676,21 @@ export function ResultsDisplay({
             <Badge key={type} variant="outline">
               {label}: {isNotam ? visibleNotamCount : count}
               {isNotam && dismissedNotams.length > 0 && (
-                <span className="ml-1 opacity-60">({dismissedNotams.length} hidden)</span>
+                <span className="ml-1 opacity-60">({dismissedNotams.length} dismissed)</span>
               )}
             </Badge>
           )
         })}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggleDateFormat}
+          className={`ml-auto h-7 gap-1.5 px-2 text-xs ${dateFormatEnabled ? "text-foreground" : "text-muted-foreground"}`}
+          title="Toggle date formatting"
+        >
+          <Wand2 className="h-3 w-3" />
+          {dateFormatEnabled ? "Raw dates" : "Format dates"}
+        </Button>
       </div>
 
       {/* Dismissed NOTAMs Section */}
@@ -640,45 +700,30 @@ export function ResultsDisplay({
         onRestoreAll={onRestoreAll}
       />
 
-      {/* Text Products */}
+      {/* Non-NOTAM Text Products */}
       {textProductTypes.map(type => {
         const items = textProducts[type]
         if (!items || items.length === 0) return null
 
-        // Use special component for Upper Wind
         if (type === "upperwind") {
-          return <UpperWindSection key={type} items={items} />
+          return (
+            <section key={type} id="section-upperwind">
+              <UpperWindSection items={items} />
+            </section>
+          )
         }
 
         const label = PRODUCT_LABELS[type] || type.toUpperCase()
 
         return (
-          <section key={type}>
+          <section key={type} id={`section-${type}`}>
             <h2 className="text-lg font-semibold border-b border-border pb-2 mb-2">
               {label}
-              {type === "notam" && (
-                <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  ({visibleNotamCount} visible)
-                </span>
-              )}
             </h2>
-            <div className="border rounded-lg divide-y-0">
-              {items.map((item, index) => {
-                if (type === "notam") {
-                  const parsed = parseNotamText(item.text)
-                  const id = parsed?.id || parseNotamId(item.text) || item.pk
-                  return (
-                    <NotamCard
-                      key={`${item.pk}-${index}`}
-                      item={item}
-                      onDismiss={onDismiss}
-                      isDismissed={isDismissed(id)}
-                    />
-                  )
-                }
-                
-                return <WeatherCard key={`${item.pk}-${index}`} item={item} />
-              })}
+            <div className="border rounded-lg divide-y-0 overflow-hidden">
+              {items.map((item, index) => (
+                <WeatherCard key={`${item.pk}-${index}`} item={item} formatEnabled={dateFormatEnabled} />
+              ))}
             </div>
           </section>
         )
@@ -686,7 +731,7 @@ export function ResultsDisplay({
 
       {/* Image Products */}
       {imageProducts.length > 0 && (
-        <section className="space-y-4">
+        <section id="section-images" className="space-y-4">
           <h2 className="text-lg font-semibold border-b border-border pb-2">
             Graphical Products ({imageProducts.length})
           </h2>
@@ -697,6 +742,28 @@ export function ResultsDisplay({
                 imageData={parsed}
                 title={parsed.product || item.type}
                 location={item.location}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* NOTAMs — always last */}
+      {visibleNotams.length > 0 && (
+        <section id="section-notam">
+          <h2 className="text-lg font-semibold border-b border-border pb-2 mb-2">
+            NOTAMs
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              ({visibleNotamCount} visible)
+            </span>
+          </h2>
+          <div className="border rounded-lg divide-y-0 overflow-hidden">
+            {visibleNotams.map((item, index) => (
+              <NotamCard
+                key={`${item.pk}-${index}`}
+                item={item}
+                onDismiss={onDismiss}
+                formatEnabled={dateFormatEnabled}
               />
             ))}
           </div>

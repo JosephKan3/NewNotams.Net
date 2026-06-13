@@ -18,6 +18,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import { SavedSearches } from "@/components/saved-searches"
 import type { SearchParams } from "@/lib/types"
 
 interface SearchInputProps {
@@ -150,6 +151,27 @@ export function SearchInput({ onSearch, isLoading }: SearchInputProps) {
     setRadiusValue("10")
   }, [])
 
+  // Build the params object that represents the current UI state.
+  const currentParams: SearchParams = {
+    ...params,
+    routeRadius: radiusEnabled ? parseInt(radiusValue) || 10 : null,
+  }
+
+  const handleRecall = useCallback((recalled: SearchParams) => {
+    setParams(recalled)
+    setInputValue("")
+    if (recalled.routeRadius != null) {
+      setRadiusEnabled(true)
+      setRadiusValue(String(recalled.routeRadius))
+    } else {
+      setRadiusEnabled(false)
+      setRadiusValue("10")
+    }
+    if (recalled.sites.length > 0) {
+      onSearch(recalled)
+    }
+  }, [onSearch])
+
   const toggleProduct = useCallback((product: keyof SearchParams["products"]) => {
     setParams(prev => ({
       ...prev,
@@ -206,6 +228,9 @@ export function SearchInput({ onSearch, isLoading }: SearchInputProps) {
             Restore Defaults
           </Button>
         </div>
+
+        {/* Saved searches */}
+        <SavedSearches currentParams={currentParams} onRecall={handleRecall} />
 
         {/* Radius Toggle */}
         <div className="flex items-center gap-2">
