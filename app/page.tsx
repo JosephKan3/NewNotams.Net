@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { Github } from "lucide-react";
 import { SearchInput } from "@/components/search-input";
 import { ResultsDisplay } from "@/components/results-display";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -247,7 +248,7 @@ export default function Home() {
       </div>
 
       <footer className="border-t border-border mt-12">
-        <div className="container mx-auto px-4 py-4 text-center text-sm text-muted-foreground">
+        <div className="container mx-auto px-4 py-4 flex flex-col items-center gap-2 text-center text-sm text-muted-foreground">
           <p>
             Data sourced from{" "}
             <a
@@ -258,6 +259,29 @@ export default function Home() {
             >
               Nav Canada CFPS
             </a>
+          </p>
+          <p className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
+            <a
+              href="https://github.com/JosephKan3/NewNotams.Net"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 underline hover:text-foreground"
+            >
+              <Github className="h-4 w-4" aria-hidden="true" />
+              GitHub
+            </a>
+            <span aria-hidden="true">·</span>
+            <span>
+              Found a bug or have a feature request?{" "}
+              <a
+                href="https://github.com/JosephKan3/NewNotams.Net/issues"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-foreground"
+              >
+                Open an issue
+              </a>
+            </span>
           </p>
         </div>
       </footer>
