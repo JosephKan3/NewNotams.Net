@@ -31,6 +31,7 @@ export function SavedSearches({ currentParams, onRecall }: SavedSearchesProps) {
   const { searches, saveSearch, deleteSearch, isAuthed } = useSavedSearches()
   const [name, setName] = useState("")
   const [saveOpen, setSaveOpen] = useState(false)
+  const [recallOpen, setRecallOpen] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
 
   const canSave = currentParams.sites.length > 0 && name.trim().length > 0
@@ -47,7 +48,7 @@ export function SavedSearches({ currentParams, onRecall }: SavedSearchesProps) {
   return (
     <div className="flex items-center gap-2">
       {/* Recall menu */}
-      <DropdownMenu>
+      <DropdownMenu open={recallOpen} onOpenChange={setRecallOpen} modal={false}>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="gap-1.5">
             <Bookmark className="h-3.5 w-3.5" />
@@ -81,6 +82,7 @@ export function SavedSearches({ currentParams, onRecall }: SavedSearchesProps) {
                   onSelect={(e) => {
                     e.preventDefault()
                     onRecall(s.params)
+                    setRecallOpen(false)
                   }}
                   className="flex items-center justify-between gap-2"
                 >
