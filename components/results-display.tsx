@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState, useEffect } from "react"
-import { Eye, EyeOff, RotateCcw, X, ExternalLink, ChevronLeft, ChevronRight, Play, Pause, ZoomIn, ZoomOut, Wand2 } from "lucide-react"
+import { Eye, EyeOff, RotateCcw, X, ExternalLink, ChevronLeft, ChevronRight, Play, Pause, Wand2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -314,7 +314,6 @@ function ImagePanel({
 }) {
   const [currentFrameIndex, setCurrentFrameIndex] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
-  const [zoom, setZoom] = useState(1)
 
   // Extract all frames with their image IDs
   const frames = useMemo(() => {
@@ -339,14 +338,6 @@ function ImagePanel({
 
   const handleNext = () => {
     setCurrentFrameIndex((prev) => (prev + 1) % frames.length)
-  }
-
-  const handleZoomIn = () => {
-    setZoom((prev) => Math.min(prev + 0.25, 3))
-  }
-
-  const handleZoomOut = () => {
-    setZoom((prev) => Math.max(prev - 0.25, 0.5))
   }
 
   if (frames.length === 0) return null
@@ -385,14 +376,7 @@ function ImagePanel({
           className="relative overflow-auto"
           style={{ maxHeight: "600px" }}
         >
-          <div 
-            className="flex items-center justify-center min-h-[300px]"
-            style={{ 
-              transform: `scale(${zoom})`,
-              transformOrigin: "top left",
-              transition: "transform 0.2s ease"
-            }}
-          >
+          <div className="flex items-center justify-center min-h-[300px]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={imageUrl}
@@ -401,28 +385,6 @@ function ImagePanel({
               loading="lazy"
             />
           </div>
-        </div>
-
-        {/* Zoom Controls */}
-        <div className="absolute top-2 right-2 flex flex-col gap-1">
-          <Button
-            variant="secondary"
-            size="icon"
-            className="h-8 w-8"
-            onClick={handleZoomIn}
-            title="Zoom In"
-          >
-            <ZoomIn className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="secondary"
-            size="icon"
-            className="h-8 w-8"
-            onClick={handleZoomOut}
-            title="Zoom Out"
-          >
-            <ZoomOut className="h-4 w-4" />
-          </Button>
         </div>
       </CardContent>
 
