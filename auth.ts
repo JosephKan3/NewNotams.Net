@@ -6,7 +6,7 @@ import Apple from "next-auth/providers/apple"
 import Discord from "next-auth/providers/discord"
 import Facebook from "next-auth/providers/facebook"
 import Twitter from "next-auth/providers/twitter"
-import AzureAD from "next-auth/providers/azure-ad"
+import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id"
 import LinkedIn from "next-auth/providers/linkedin"
 import Twitch from "next-auth/providers/twitch"
 import Spotify from "next-auth/providers/spotify"
@@ -24,7 +24,11 @@ import { getUserByEmail, verifyPassword, findOrCreateOAuthUser } from "@/lib/use
  *   AUTH_DISCORD_ID / AUTH_DISCORD_SECRET
  *   AUTH_FACEBOOK_ID / AUTH_FACEBOOK_SECRET
  *   AUTH_TWITTER_ID / AUTH_TWITTER_SECRET
- *   AUTH_AZURE_AD_ID / AUTH_AZURE_AD_SECRET / AUTH_AZURE_AD_TENANT_ID
+   *   AUTH_AZURE_AD_ID / AUTH_AZURE_AD_SECRET / AUTH_AZURE_AD_TENANT_ID
+   *     (Azure AD is Microsoft's deprecated name for this provider; AuthJS's
+   *     `azure-ad` import is a deprecated alias for `microsoft-entra-id`,
+   *     which takes a full `issuer` URL rather than a bare `tenantId`.
+   *     The env var name here is kept as-is since nothing has ever set it.)
  *   AUTH_LINKEDIN_ID / AUTH_LINKEDIN_SECRET
  *   AUTH_TWITCH_ID / AUTH_TWITCH_SECRET
  *   AUTH_SPOTIFY_ID / AUTH_SPOTIFY_SECRET
@@ -50,10 +54,12 @@ const oauthProviders = [
     ? Twitter({ clientId: process.env.AUTH_TWITTER_ID, clientSecret: process.env.AUTH_TWITTER_SECRET! })
     : null,
   process.env.AUTH_AZURE_AD_ID
-    ? AzureAD({
+    ? MicrosoftEntraID({
         clientId: process.env.AUTH_AZURE_AD_ID,
         clientSecret: process.env.AUTH_AZURE_AD_SECRET!,
-        tenantId: process.env.AUTH_AZURE_AD_TENANT_ID,
+        issuer: process.env.AUTH_AZURE_AD_TENANT_ID
+          ? `https://login.microsoftonline.com/${process.env.AUTH_AZURE_AD_TENANT_ID}/v2.0/`
+          : undefined,
       })
     : null,
   process.env.AUTH_LINKEDIN_ID
@@ -68,7 +74,6 @@ const oauthProviders = [
 ].filter((p) => p !== null)
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  // @ts-expect-error -- trustHost is a valid v5 option; bundled types are still v4
   trustHost: true,
   session: { strategy: "jwt" },
   pages: {
