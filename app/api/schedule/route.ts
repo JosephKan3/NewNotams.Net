@@ -1,21 +1,15 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getKv } from "@/lib/kv"
+import { SCHEDULE_USER_IDS_KEY, getSchedulesDueAt, scheduleKey } from "@/lib/notify"
+import type { ScheduleConfig } from "@/lib/notify"
 
-export interface ScheduleConfig {
-  userId: string
-  notifyHours: number[]   // UTC hours to send, e.g. [6, 12, 18]
-  savedQuery: string       // raw URLSearchParams query string
-  dismissedIds?: string[]  // NOTAM IDs to exclude from notifications
-  filterDismissed?: boolean
-  createdAt: string
-}
-
-const SCHEDULE_USER_IDS_KEY = "schedule_user_ids"
-
-function scheduleKey(userId: string) {
-  return `schedule:${userId}`
-}
+// Re-exported for backward compatibility with any existing import of
+// `getSchedulesDueAt`/`ScheduleConfig` from this route module — the real
+// implementation now lives in lib/notify.ts so it is importable from a
+// plain Lambda handler with no Next.js runtime underneath it.
+export { getSchedulesDueAt }
+export type { ScheduleConfig }
 
 // GET /api/schedule — fetch the signed-in user's schedule
 export async function GET() {
@@ -112,18 +106,4 @@ export async function DELETE() {
   } catch {
     return NextResponse.json({ error: "KV unavailable" }, { status: 503 })
   }
-}
-
-// Helper used by the cron job — get all schedules due at a given UTC hour
-export async function getSchedulesDueAt(utcHour: number): Promise<ScheduleConfig[]> {
-  const userIds = await getKv().smembers<string[]>(SCHEDULE_USER_IDS_KEY)
-  if (!userIds?.length) return []
-
-  const configs = await Promise.all(
-    userIds.map(userId => getKv().get<ScheduleConfig>(scheduleKey(userId)))
-  )
-
-  return configs.filter(
-    (c): c is ScheduleConfig => c !== null && c.notifyHours.includes(utcHour)
-  )
 }
