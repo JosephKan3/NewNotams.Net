@@ -1,6 +1,22 @@
 import { NextRequest, NextResponse } from "next/server"
+import { checkWeatherRateLimit } from "@/lib/rate-limit"
 
 export async function GET(request: NextRequest) {
+  const rateLimit = await checkWeatherRateLimit(request)
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": Math.max(0, Math.ceil((rateLimit.resetAt - Date.now()) / 1000)).toString(),
+          "X-RateLimit-Limit": rateLimit.limit.toString(),
+          "X-RateLimit-Remaining": rateLimit.remaining.toString(),
+        },
+      }
+    )
+  }
+
   const searchParams = request.nextUrl.searchParams
   
   // Build the URL for Nav Canada API
