@@ -9,3 +9,13 @@ node_modules/
 .open-next/
 .env*.local
 .DS_Store
+
+# CDK (cdk/) — infrastructure for this app, moved here from home-platform
+# per that repo's ADR-0009.
+cdk/cdk.out/
+cdk/dist/
+cdk/*.tsbuildinfo
+# ssm.StringParameter.valueFromLookup caches the real SSM value here at
+# synth time (vapid-private-key is still SecureString as of this writing —
+# see newnotams-stack.ts's own comment). Must never be committed.
+cdk/cdk.context.json
