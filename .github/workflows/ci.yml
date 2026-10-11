@@ -1,0 +1,147 @@
+name: CI
+
+# Pull request validation, mirroring home-platform's own ci.yml (ADR-0009):
+#
+#   npm build/typecheck (the Next.js app)
+#   -> cdk synth + cdk diff (gha-newnotams-plan, read-only, placeholder app build)
+#
+# This workflow never deploys. gha-newnotams-plan holds ReadOnlyAccess plus
+# the right to assume the CDK lookup role, and nothing else; a `cdk deploy`
+# here would fail at the AssumeRole for cdk-*-deploy-role-*.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: us-east-1
+  MGMT_ACCOUNT_ID: ${{ vars.MGMT_ACCOUNT_ID }}
+  PLATFORM_ACCOUNT_ID: ${{ vars.PLATFORM_ACCOUNT_ID }}
+
+jobs:
+  check:
+    name: build / typecheck (Next.js app)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Placeholder env vars, same discipline as a local build check -- this
+      # job proves the app compiles and typechecks, not that it runs
+      # correctly against real secrets (that is what a real deploy and
+      # manual verification are for, same as every stage of Phase 1 that
+      # found a real bug only by testing the actual sign-in button).
+      - name: Build
+        env:
+          AUTH_SECRET: placeholder-for-build-check-only
+          AUTH_GOOGLE_ID: placeholder
+          AUTH_GOOGLE_SECRET: placeholder
+          KV_REST_API_URL: https://placeholder.upstash.io
+          KV_REST_API_TOKEN: placeholder
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: placeholder
+          VAPID_PRIVATE_KEY: placeholder
+        run: npm run build
+
+  synth-and-diff:
+    name: cdk synth + diff (gha-newnotams-plan)
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: cdk/package-lock.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@josephkan3"
+
+      - name: Install
+        working-directory: cdk
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        working-directory: cdk
+        run: npm run build
+
+      - name: Run cdk/ tests
+        working-directory: cdk
+        run: npm test
+
+      # sub claim: repo:JosephKan3@54008059/NewNotams.Net@1174868537:pull_request
+      # StringEquals on the full sub, never StringLike.
+      - name: Assume gha-newnotams-plan
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-newnotams-plan-pr-${{ github.event.pull_request.number }}
+
+      - name: Confirm the assumed identity
+        run: aws sts get-caller-identity
+
+      # -c sitePlaceholder=true: this job checks whether the infrastructure
+      # change is safe, which does not need a real OpenNext build on disk —
+      # the app's own build/typecheck already ran above. Every bin/app.ts
+      # registers AwsSolutionsChecks (home-platform's ADR-0007), and an
+      # error-severity cdk-nag finding makes `cdk synth` exit non-zero, so a
+      # policy violation fails here before `cdk diff` runs.
+      - name: cdk diff
+        working-directory: cdk
+        run: npx cdk diff NewNotamsStack -c sitePlaceholder=true --no-color 2>&1 | tee ../diff.md
+
+      - name: Post the diff as a PR comment
+        if: always() && hashFiles('diff.md') != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- cdk-diff -->';
+            const body = `${marker}\n## cdk diff\n\n\`\`\`\n${fs.readFileSync('diff.md', 'utf8')}\n\`\`\``;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+
+            const existing = comments.find(
+              (comment) => comment.user.type === 'Bot' && comment.body.startsWith(marker),
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

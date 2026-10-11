@@ -1,0 +1,205 @@
+name: Deploy
+
+# Merge to main deploys newnotams.net with nobody touching the console,
+# mirroring home-platform's own deploy.yml (ADR-0009). Before this workflow
+# existed, every deploy to NewNotamsStack was a manual `cdk deploy` run by
+# hand -- this closes that gap.
+#
+# dev proves the credential chain end to end (there is no dev-scoped stack
+# here either, same as home-platform's own deploy-dev job -- NewNotamsStack
+# is tagged env=prod) before the prod approval gate is reached. prod builds
+# the real app, runs the real OpenNext build, and deploys NewNotamsStack for
+# real, gated by the prod GitHub Environment's required reviewer.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  MGMT_ACCOUNT_ID: ${{ vars.MGMT_ACCOUNT_ID }}
+  PLATFORM_ACCOUNT_ID: ${{ vars.PLATFORM_ACCOUNT_ID }}
+
+# One deploy at a time. cancel-in-progress is deliberately false: cancelling
+# mid-CloudFormation leaves the stack in UPDATE_IN_PROGRESS.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Build
+        env:
+          AUTH_SECRET: placeholder-for-build-check-only
+          AUTH_GOOGLE_ID: placeholder
+          AUTH_GOOGLE_SECRET: placeholder
+          KV_REST_API_URL: https://placeholder.upstash.io
+          KV_REST_API_TOKEN: placeholder
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: placeholder
+          VAPID_PRIVATE_KEY: placeholder
+        run: npm run build
+      - name: Build and test cdk/
+        working-directory: cdk
+        run: |
+          npm ci
+          npm run build
+          npm test
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy-dev:
+    name: dev
+    needs: build
+    # `environment: dev` is what puts `environment:dev` in the OIDC sub
+    # claim. gha-newnotams-deploy-dev's trust policy is StringEquals on
+    # repo:JosephKan3@54008059/NewNotams.Net@1174868537:environment:dev --
+    # without this key the token carries a different sub and the
+    # AssumeRole is refused.
+    environment: dev
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: cdk/package-lock.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@josephkan3"
+      - name: Install
+        working-directory: cdk
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build
+        working-directory: cdk
+        run: npm run build
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_DEV_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-newnotams-deploy-dev-${{ github.run_id }}
+
+      - name: Confirm the assumed identity
+        run: aws sts get-caller-identity
+
+      # NewNotamsStack is tagged env=prod (there is no dev-scoped stack,
+      # same situation as home-platform's own deploy-dev job) -- this
+      # job's real purpose is to prove the dev credential chain works end
+      # to end before the prod gate is reached: assume the role,
+      # synthesize, fail here rather than after an approval.
+      - name: Synth
+        working-directory: cdk
+        run: npx cdk synth NewNotamsStack -c sitePlaceholder=true
+
+  deploy-prod:
+    name: prod
+    needs: deploy-dev
+    # `environment: prod` is LOAD-BEARING, in two independent ways:
+    #
+    #   1. The GitHub Environment protection rule (required reviewer) is
+    #      what gates this job. There is no other approval step here.
+    #   2. gha-newnotams-deploy-prod's trust policy is StringEquals on
+    #      repo:...:environment:prod. GitHub only puts `environment:prod`
+    #      in the OIDC sub claim when the job declares this key. Remove it
+    #      and the role cannot be assumed at all -- the deploy fails at
+    #      AssumeRole, it does not silently deploy unreviewed.
+    environment: prod
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install app dependencies
+        run: npm ci
+
+      # The real OpenNext build. Placeholder mode is for CI's own synth/
+      # diff checks only -- deploying with it would publish a placeholder
+      # page to the live domain.
+      - name: Build the app and run the OpenNext build
+        env:
+          AUTH_SECRET: placeholder-for-build-check-only
+          AUTH_GOOGLE_ID: placeholder
+          AUTH_GOOGLE_SECRET: placeholder
+          KV_REST_API_URL: https://placeholder.upstash.io
+          KV_REST_API_TOKEN: placeholder
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: placeholder
+          VAPID_PRIVATE_KEY: placeholder
+        run: |
+          npm run build
+          npx open-next build
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: cdk/package-lock.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@josephkan3"
+      - name: Install cdk/ dependencies
+        working-directory: cdk
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build cdk/
+        working-directory: cdk
+        run: npm run build
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_PROD_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-newnotams-deploy-prod-${{ github.run_id }}
+
+      - name: Confirm the assumed identity
+        run: aws sts get-caller-identity
+
+      # --outputs-file, not a separate `aws cloudformation describe-stacks`
+      # call: gha-newnotams-deploy-prod's own policy grants nothing but
+      # sts:AssumeRole on the four cdk-hnbprod-*-role ARNs (least
+      # privilege, same shape as home-platform's gha-deploy-prod). `cdk
+      # deploy` can read the stack back because it assumes
+      # cdk-hnbprod-deploy-role internally for the duration of the CDK
+      # CLI process; a standalone `aws cloudformation describe-stacks`
+      # afterwards runs under gha-newnotams-deploy-prod's own bare
+      # identity and would be denied with AccessDenied on
+      # cloudformation:DescribeStacks -- see home-platform's deploy.yml
+      # comment on this same finding for personal-site.
+      - name: Deploy NewNotamsStack
+        working-directory: cdk
+        run: >-
+          npx cdk deploy NewNotamsStack
+          --require-approval never
+          -c repoRootPath=${{ github.workspace }}
+          -c alertEmail=${{ vars.ALERT_EMAIL }}
+          --outputs-file ${{ github.workspace }}/newnotams-outputs.json
+
+      - name: Report the distribution domain
+        run: |
+          jq -r '.NewNotamsStack.DistributionDomainName' \
+            ${{ github.workspace }}/newnotams-outputs.json

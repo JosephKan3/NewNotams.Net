@@ -316,18 +316,33 @@ export class NewNotamsStack extends Stack {
     // its own usePlaceholderSource branch internally. This stack supplies
     // the equivalent behavior at the call site instead.
     //
-    // Now that the stack and the app share one repo (ADR-0009,
-    // home-platform), entry/projectRoot/depsLockFilePath all resolve
-    // within this same checkout — no more cross-repo sibling-checkout
-    // path, and no more projectRoot override: this repo's own
-    // package-lock.json and node_modules are exactly what NodejsFunction's
-    // defaults already expect.
+    // projectRoot/depsLockFilePath are STILL needed even though the stack
+    // and the app now share one repo (ADR-0009, home-platform) — moving
+    // repos did not remove the actual cause, only changed its shape.
+    // `cdk/` has its own package.json/package-lock.json (the CDK app's
+    // own dependencies: aws-cdk-lib, the two @josephkan3 packages), which
+    // makes it NodejsFunction's default projectRoot — but lambda/notify/
+    // index.ts lives one level up, at the real repo root, where the APP's
+    // package-lock.json and node_modules live. NodejsFunction's own
+    // PathNotUnderRoot check fails outright otherwise: confirmed directly
+    // against a real, non-placeholder `cdk synth` — "entryPath
+    // (.../lambda/notify/index.ts) should be under projectRoot
+    // (.../cdk)". An earlier version of this comment assumed sharing one
+    // repo made this unnecessary; it does not, because `cdk/` and the
+    // repo root are still two different directories with two different
+    // lockfiles.
     const entry = usePlaceholderSource
       ? path.join(__dirname, "placeholder-notify-handler.ts")
       : path.join(repoRootPath, "lambda", "notify", "index.ts");
+    const projectRoot = usePlaceholderSource ? undefined : repoRootPath;
+    const depsLockFilePath = usePlaceholderSource
+      ? undefined
+      : path.join(repoRootPath, "package-lock.json");
 
     return new ScheduledJob(this, "Notify", {
       entry,
+      projectRoot,
+      depsLockFilePath,
       schedule: NOTIFY_INTERVAL,
       profile,
       description: "Hourly NOTAM notification sweep — direct invoke, no public endpoint.",
