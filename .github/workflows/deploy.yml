@@ -53,6 +53,11 @@ jobs:
           NEXT_PUBLIC_VAPID_PUBLIC_KEY: placeholder
           VAPID_PRIVATE_KEY: placeholder
         run: npm run build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@josephkan3"
       - name: Build and test cdk/
         working-directory: cdk
         run: |

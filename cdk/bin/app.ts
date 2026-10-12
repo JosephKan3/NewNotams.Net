@@ -34,7 +34,10 @@ new NewNotamsStack(app, "NewNotamsStack", {
   usePlaceholderSource,
   openNextOutputPath: typeof openNextOutputPath === "string" ? openNextOutputPath : undefined,
   repoRootPath: typeof repoRootPath === "string" ? repoRootPath : undefined,
-  alertEmail: typeof alertEmail === "string" ? alertEmail : undefined,
+  // "" is what an unset `vars.ALERT_EMAIL` resolves to in the deploy
+  // workflow's `-c alertEmail=${{ vars.ALERT_EMAIL }}` -- treat it the same
+  // as unset rather than creating a broken empty-string email subscription.
+  alertEmail: typeof alertEmail === "string" && alertEmail.length > 0 ? alertEmail : undefined,
 });
 
 Aspects.of(app).add(new NoManagedEgressAspect());
