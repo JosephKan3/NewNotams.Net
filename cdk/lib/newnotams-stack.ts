@@ -60,10 +60,10 @@ export const NOTIFY_INTERVAL = Duration.hours(1);
  * it has no AWS equivalent, since EventBridge invokes the Lambda directly
  * and there is no public endpoint for it to protect.
  *
- * All eight are `String`, **not `SecureString`**, except `vapidPrivateKey`
- * — this needed two real, live-deploy failures to arrive at, not a single
- * design decision while this stack still lived in `home-platform`, so the
- * history is worth keeping:
+ * All eight are `String`, **not `SecureString`** — this needed two real,
+ * live-deploy failures to arrive at, not a single design decision while
+ * this stack still lived in `home-platform`, so the history is worth
+ * keeping:
  *
  * 1. They were seeded as `SecureString` initially.
  * 2. `StringParameter.valueForStringParameter` — the obvious way to read
@@ -100,10 +100,14 @@ export const NOTIFY_INTERVAL = Duration.hours(1);
  * synchronously at module load, before any runtime code this construct
  * controls would get a chance to inject a value).
  *
- * `vapidPrivateKey` is still `SecureString` as of this writing — re-seed it
- * as `String` before clearing `cdk.context.json` and redeploying, or push
- * notifications will silently fail with a garbled key rather than erroring
- * clearly.
+ * `vapidPrivateKey` was the one straggler still seeded as `SecureString`
+ * (re-seeded as `String` when the CI deploy-dev role's lack of direct
+ * `ssm:GetParameter` surfaced it — `valueFromLookup` calls SSM with the
+ * CLI's bare credentials, bypassing the assumed CFN execution role
+ * entirely, so it needs its own grant regardless of parameter type; using
+ * the same `valueForStringParameter` pattern as every other parameter here
+ * avoids needing a second, narrower grant for a `valueFromLookup`-style
+ * synth-time read).
  */
 export const newNotamsParameterNames = {
   googleClientId: `/${APP_NAME}/auth/google-id`,
@@ -245,12 +249,10 @@ export class NewNotamsStack extends Stack {
    * of `valueFromLookup`'s caveats (no synth-time AWS call, no
    * `cdk.context.json` entry, no stale-cache risk across redeploys).
    *
-   * `vapidPrivateKey` is the one exception: it is still `SecureString` as
-   * of this writing, so it still uses `valueFromLookup` and will bake in
-   * raw ciphertext rather than the real key the next time
-   * `cdk.context.json` is cleared and this stack redeploys, exactly as
-   * `googleClientId` did before it was re-seeded. Re-seed it as `String`
-   * before that happens.
+   * All eight parameters, including `vapidPrivateKey`, use
+   * `valueForStringParameter` — see `newNotamsParameterNames`'s doc
+   * comment for why `vapidPrivateKey` was the one straggler still seeded
+   * as `SecureString`.
    */
   private grantServerSecrets(): void {
     const fn = this.site.serverFunction;
@@ -273,7 +275,7 @@ export class NewNotamsStack extends Stack {
     );
     fn.addEnvironment(
       "VAPID_PRIVATE_KEY",
-      ssm.StringParameter.valueFromLookup(this, newNotamsParameterNames.vapidPrivateKey),
+      ssm.StringParameter.valueForStringParameter(this, newNotamsParameterNames.vapidPrivateKey),
     );
     fn.addEnvironment(
       "VAPID_SUBJECT",
@@ -348,8 +350,7 @@ export class NewNotamsStack extends Stack {
       description: "Hourly NOTAM notification sweep — direct invoke, no public endpoint.",
       scheduleDescription: "Hourly NewNotams notify sweep. Not real-time; matches notifyHours.",
       // See grantServerSecrets's comment for the full account of why these
-      // are String parameters, not SecureString, and why vapidPrivateKey
-      // alone still uses valueFromLookup (it has not been re-seeded yet).
+      // are String parameters, not SecureString.
       environment: {
         KV_REST_API_URL: ssm.StringParameter.valueForStringParameter(
           this,
@@ -363,7 +364,7 @@ export class NewNotamsStack extends Stack {
           this,
           newNotamsParameterNames.vapidPublicKey,
         ),
-        VAPID_PRIVATE_KEY: ssm.StringParameter.valueFromLookup(
+        VAPID_PRIVATE_KEY: ssm.StringParameter.valueForStringParameter(
           this,
           newNotamsParameterNames.vapidPrivateKey,
         ),
