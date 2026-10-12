@@ -19,6 +19,11 @@ on:
 permissions:
   id-token: write
   contents: read
+  # Any permission not listed here is forced to `none` -- GITHUB_TOKEN
+  # needs this explicitly to pull @josephkan3/constructs and
+  # @josephkan3/config from GitHub Packages (npm.pkg.github.com), even
+  # though both packages are public.
+  packages: read
 
 env:
   AWS_REGION: us-east-1
