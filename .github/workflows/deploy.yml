@@ -157,16 +157,46 @@ jobs:
       # NEXT_PUBLIC_* vars are inlined into the client JS bundle at build
       # time, unlike every other var below -- those are server-only and get
       # their real value injected into the Lambda's runtime environment by
-      # CDK/SSM after this build, so "placeholder" there is harmless. This
-      # one has no such second chance: a placeholder baked in here ships to
-      # every browser, and pushManager.subscribe() throws synchronously on
-      # an invalid key, breaking "Enable notifications" silently (the
-      # public key is the public half of the keypair -- fine to read here,
-      # no different from it being public in a NEXT_PUBLIC_ var in the
-      # first place).
+      # CDK/SSM after this build step runs, so "placeholder" there is
+      # harmless. This one has no such second chance: a placeholder baked
+      # in here ships to every browser, and pushManager.subscribe() throws
+      # synchronously on an invalid key, breaking "Enable notifications"
+      # silently (the public key is the public half of the keypair -- fine
+      # to read here, no different from it being public in a NEXT_PUBLIC_
+      # var in the first place).
+      #
+      # gha-newnotams-deploy-prod itself holds no direct AWS permissions --
+      # only sts:AssumeRole on the cdk-hnbprod-* bootstrap roles (least
+      # privilege, see GitHubOidcStack) -- so a bare ssm:GetParameter call
+      # under its own identity is denied. A first attempt at this step did
+      # exactly that: the AccessDeniedException landed inside a `$(...)`
+      # substitution, so `echo` still exited 0 and silently baked in an
+      # *empty* string, which is worse than the literal "placeholder" it
+      # replaced. Assuming the prod lookup role (ReadOnlyAccess, already
+      # grantable to this role, and the correct role for exactly this kind
+      # of synth/build-time read) fixes both the permission and removes the
+      # silent-failure shape -- `set -eo pipefail` makes a denied
+      # get-parameter fail the step loudly instead.
       - name: Fetch the real VAPID public key for the client bundle
         run: |
-          echo "VAPID_PUBLIC_KEY=$(aws ssm get-parameter --name /newnotams/push/vapid-public-key --region ${{ env.AWS_REGION }} --query Parameter.Value --output text)" >> "$GITHUB_ENV"
+          set -eo pipefail
+          CREDS=$(aws sts assume-role \
+            --role-arn arn:aws:iam::${{ vars.PLATFORM_ACCOUNT_ID }}:role/cdk-hnbprod-lookup-role-${{ vars.PLATFORM_ACCOUNT_ID }}-${{ env.AWS_REGION }} \
+            --role-session-name gha-newnotams-vapid-lookup-${{ github.run_id }} \
+            --query "Credentials.[AccessKeyId,SecretAccessKey,SessionToken]" \
+            --output text)
+          read -r AK SK ST <<< "$CREDS"
+          VAPID_PUBLIC_KEY=$(AWS_ACCESS_KEY_ID="$AK" AWS_SECRET_ACCESS_KEY="$SK" AWS_SESSION_TOKEN="$ST" \
+            aws ssm get-parameter --name /newnotams/push/vapid-public-key --region ${{ env.AWS_REGION }} \
+            --query Parameter.Value --output text)
+          # Belt-and-suspenders after the exact failure mode above (a
+          # denied call inside $(...) not failing the step): refuse to
+          # proceed with an empty key rather than silently shipping one.
+          if [ -z "$VAPID_PUBLIC_KEY" ]; then
+            echo "::error::VAPID_PUBLIC_KEY came back empty from SSM" >&2
+            exit 1
+          fi
+          echo "VAPID_PUBLIC_KEY=$VAPID_PUBLIC_KEY" >> "$GITHUB_ENV"
 
       # The real OpenNext build. Placeholder mode is for CI's own synth/
       # diff checks only -- deploying with it would publish a placeholder
