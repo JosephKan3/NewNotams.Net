@@ -145,6 +145,29 @@ jobs:
       - name: Install app dependencies
         run: npm ci
 
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_PROD_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-newnotams-deploy-prod-${{ github.run_id }}
+
+      - name: Confirm the assumed identity
+        run: aws sts get-caller-identity
+
+      # NEXT_PUBLIC_* vars are inlined into the client JS bundle at build
+      # time, unlike every other var below -- those are server-only and get
+      # their real value injected into the Lambda's runtime environment by
+      # CDK/SSM after this build, so "placeholder" there is harmless. This
+      # one has no such second chance: a placeholder baked in here ships to
+      # every browser, and pushManager.subscribe() throws synchronously on
+      # an invalid key, breaking "Enable notifications" silently (the
+      # public key is the public half of the keypair -- fine to read here,
+      # no different from it being public in a NEXT_PUBLIC_ var in the
+      # first place).
+      - name: Fetch the real VAPID public key for the client bundle
+        run: |
+          echo "VAPID_PUBLIC_KEY=$(aws ssm get-parameter --name /newnotams/push/vapid-public-key --region ${{ env.AWS_REGION }} --query Parameter.Value --output text)" >> "$GITHUB_ENV"
+
       # The real OpenNext build. Placeholder mode is for CI's own synth/
       # diff checks only -- deploying with it would publish a placeholder
       # page to the live domain.
@@ -155,7 +178,7 @@ jobs:
           AUTH_GOOGLE_SECRET: placeholder
           KV_REST_API_URL: https://placeholder.upstash.io
           KV_REST_API_TOKEN: placeholder
-          NEXT_PUBLIC_VAPID_PUBLIC_KEY: placeholder
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ env.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: placeholder
         run: |
           npm run build
@@ -179,15 +202,6 @@ jobs:
       - name: Build cdk/
         working-directory: cdk
         run: npm run build
-
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_PROD_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: gha-newnotams-deploy-prod-${{ github.run_id }}
-
-      - name: Confirm the assumed identity
-        run: aws sts get-caller-identity
 
       # --outputs-file, not a separate `aws cloudformation describe-stacks`
       # call: gha-newnotams-deploy-prod's own policy grants nothing but

@@ -161,8 +161,14 @@ export function NotifySettings({ currentQueryString, dismissedIds = [] }: Notify
         body: JSON.stringify({ subscription: sub.toJSON() }),
       })
       setSubscribed(true)
-    } catch {
-      // permission denied or subscription failed — leave state as-is
+    } catch (e) {
+      // Logged, not silently swallowed: pushManager.subscribe() throws
+      // synchronously on a malformed applicationServerKey (e.g. a build
+      // that baked in a placeholder VAPID key), and that failure mode is
+      // otherwise indistinguishable from the user simply denying the
+      // permission prompt — see deploy.yml's comment on why this
+      // specific var needs the real key at build time.
+      console.error("enableNotifications failed:", e)
     } finally {
       setSubscribing(false)
     }
