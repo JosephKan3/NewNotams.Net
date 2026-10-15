@@ -43,6 +43,15 @@ export async function handler(): Promise<void> {
   const startedAt = Date.now();
   const currentHour = new Date().getUTCHours();
 
+  // DELIBERATE DRILL BREAKAGE — Phase 2 roadmap's canary/rollback exit
+  // criterion, reverted immediately after confirming CodeDeploy auto-rolls
+  // back on this alarm. Do not merge/keep. Opt-in via env var (default
+  // off) rather than an unconditional throw, so a stray redeploy of this
+  // branch without the var set behaves exactly like the real handler.
+  if (process.env["DRILL_FORCE_FAILURE"] === "1") {
+    throw new Error(`drill: deliberate failure to exercise CodeDeploy automatic rollback (hour ${currentHour})`);
+  }
+
   let schedules;
   try {
     schedules = await getSchedulesDueAt(currentHour);
