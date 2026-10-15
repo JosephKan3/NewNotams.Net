@@ -444,6 +444,20 @@ export class NewNotamsStack extends Stack {
       profile,
       description: "Hourly NOTAM notification sweep — direct invoke, no public endpoint.",
       scheduleDescription: "Hourly NewNotams notify sweep. Not real-time; matches notifyHours.",
+      // Phase 2 roadmap: "deliberately break a NewNotams deploy and show
+      // the automatic rollback" — this is that mechanism. prod gets it
+      // (profile.progressiveDelivery), dev does not: a canary is only
+      // meaningful ahead of real traffic, and dev's own "deploy" is a
+      // synth-only proof of the credential chain (see deploy.yml's own
+      // comment on deploy-dev), never a real invocation. No
+      // `deploymentAlarm` passed — `ScheduledJob`'s own default (built
+      // from this function's `metricErrors`, threshold 1, period matching
+      // `NOTIFY_INTERVAL`) is the exact shape `createNotifyFailureAlarm`
+      // below already hand-builds for paging a human; two separate
+      // CloudFormation alarms watching the identical metric and
+      // threshold, not one alarm serving both purposes — see
+      // `ScheduledJobProps.deploymentAlarm`'s doc comment for why.
+      progressiveDelivery: profile.progressiveDelivery,
       // See grantServerSecrets's comment for the full account of why these
       // are String parameters, not SecureString. KV_REST_API_URL/TOKEN are
       // deliberately absent here (Phase 2): the notify sweep's schedule
@@ -539,6 +553,12 @@ export class NewNotamsStack extends Stack {
       }),
     );
 
+    // job.fn.metricErrors() (dimensioned only by FunctionName, no Resource
+    // qualifier) aggregates across every version/alias invoked under this
+    // function — correctly counts failures whether EventBridge invokes the
+    // bare function (progressiveDelivery off) or job.liveAlias
+    // (progressiveDelivery on). Unaffected by, and does not need updating
+    // for, createNotifyJob's progressiveDelivery prop above.
     const alarm = new cloudwatch.Alarm(this, "NotifyFailureAlarm", {
       alarmDescription:
         "The hourly NOTAM notify sweep failed outright (every user's notification failed) " +

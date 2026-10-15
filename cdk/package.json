@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@josephkan3/config": "^1.0.0",
-    "@josephkan3/constructs": "^1.0.0"
+    "@josephkan3/constructs": "^1.1.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",

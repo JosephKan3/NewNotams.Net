@@ -10,7 +10,7 @@
 process.env["MGMT_ACCOUNT_ID"] ??= "111111111111";
 process.env["PLATFORM_ACCOUNT_ID"] ??= "222222222222";
 
-import { App } from "aws-cdk-lib";
+import { App, Validations } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { CLOUDFRONT_CERT_REGION } from "@josephkan3/config";
 import { APP_NAME, NOTIFY_INTERVAL, NewNotamsStack, newNotamsParameterNames } from "../lib/newnotams-stack.js";
@@ -261,6 +261,59 @@ describe("notify failure alarm (Phase 1 action plan §5)", () => {
 
   test("has no email subscription when alertEmail is omitted — an alarm with no subscriber is silent, but synth should not require a real inbox", () => {
     template.resourceCountIs("AWS::SNS::Subscription", 0);
+  });
+});
+
+describe("notify job progressive delivery (Phase 2 roadmap: canary + automatic rollback)", () => {
+  test("prod gets a canary: an Alias, a DeploymentGroup, and the schedule targets the alias", () => {
+    template.resourceCountIs("AWS::Lambda::Alias", 1);
+    template.hasResourceProperties("AWS::Lambda::Alias", { Name: "live" });
+    template.resourceCountIs("AWS::CodeDeploy::DeploymentGroup", 1);
+
+    template.hasResourceProperties("AWS::Scheduler::Schedule", {
+      Target: Match.objectLike({
+        Arn: { Ref: Match.stringLikeRegexp("^NotifyLiveAlias") },
+      }),
+    });
+  });
+
+  test("two separate alarms watch the same metric/threshold — ScheduledJob's own canary alarm and this stack's own paging alarm are not the same resource", () => {
+    // See createNotifyJob's own comment on why this is deliberate: the
+    // thing CodeDeploy watches during a 5-minute canary window and the
+    // thing that pages a human via SNS are kept as two separate
+    // CloudFormation resources, even though both watch the identical
+    // metric and threshold and so fire at the same real-world moment.
+    template.resourceCountIs("AWS::CloudWatch::Alarm", 2);
+
+    const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm")) as Array<{
+      Properties: { Threshold: number; MetricName: string };
+    }>;
+    for (const alarm of alarms) {
+      expect(alarm.Properties.MetricName).toBe("Errors");
+      expect(alarm.Properties.Threshold).toBe(1);
+    }
+  });
+
+  test("the DeploymentGroup's service role is suppressed for AwsSolutions-IAM4, not left as a real finding", () => {
+    // Full assurance that this is actually clean, not just "no error
+    // thrown", is cdk-nag.test.ts's own AwsSolutionsChecks run against
+    // this exact template. This test confirms *where* that suppression
+    // lives: ScheduledJob's own progressive-delivery path (see its test
+    // suite's identical assertion style), reached here via the construct
+    // boundary rather than duplicated.
+    const app = new App();
+    const stack = new NewNotamsStack(app, "SuppressionStack", {
+      env: ENV,
+      envName: "prod",
+      usePlaceholderSource: true,
+    });
+
+    const deploymentGroupRole = stack.notifyJob.deploymentGroup!.role;
+    const recorded = deploymentGroupRole.node.metadata
+      .filter((entry) => entry.type === Validations.ACKNOWLEDGED_RULES_METADATA_KEY)
+      .flatMap((entry) => Object.keys(entry.data as Record<string, string>));
+
+    expect(recorded).toContain("AwsSolutions-IAM4[Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSCodeDeployRoleForLambdaLimited]");
   });
 });
 
