@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
-import { getKv } from "@/lib/kv"
+import { getDb, tableName, userPk, SK } from "@/lib/db"
+import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb"
 import type { DismissedNotamMeta } from "@/lib/types"
-
-function dismissalsKey(userId: string) {
-  return `dismissals:${userId}`
-}
 
 export async function GET() {
   const session = await auth()
@@ -13,8 +10,13 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const dismissed =
-    (await getKv().get<DismissedNotamMeta[]>(dismissalsKey(session.user.id))) ?? []
+  const { Item } = await getDb().send(
+    new GetCommand({
+      TableName: tableName(),
+      Key: { pk: userPk(session.user.id), sk: SK.dismissals },
+    }),
+  )
+  const dismissed = (Item as { items?: DismissedNotamMeta[] } | undefined)?.items ?? []
   return NextResponse.json({ dismissed })
 }
 
@@ -35,6 +37,11 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Missing dismissed array" }, { status: 400 })
   }
 
-  await getKv().set(dismissalsKey(session.user.id), body.dismissed)
+  await getDb().send(
+    new PutCommand({
+      TableName: tableName(),
+      Item: { pk: userPk(session.user.id), sk: SK.dismissals, items: body.dismissed },
+    }),
+  )
   return NextResponse.json({ ok: true })
 }

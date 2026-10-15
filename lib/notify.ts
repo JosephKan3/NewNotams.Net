@@ -12,8 +12,12 @@
 // module must be importable from a plain Lambda handler with no Next.js
 // runtime underneath it.
 
-import { getKv } from "@/lib/kv"
+import { getDb, tableName, userPk, SK, SCHEDULE_HOUR_INDEX, scheduleHourSk, scheduleHourGsiPk } from "@/lib/db"
+import { GetCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb"
+import type { TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb"
 import type { PushPayload } from "@/lib/push"
+
+type TransactItem = NonNullable<TransactWriteCommandInput["TransactItems"]>[number]
 
 export interface ScheduleConfig {
   userId: string
@@ -24,25 +28,94 @@ export interface ScheduleConfig {
   createdAt: string
 }
 
-export const SCHEDULE_USER_IDS_KEY = "schedule_user_ids"
-
-export function scheduleKey(userId: string): string {
-  return `schedule:${userId}`
+export async function getSchedule(userId: string): Promise<ScheduleConfig | null> {
+  const { Item } = await getDb().send(
+    new GetCommand({ TableName: tableName(), Key: { pk: userPk(userId), sk: SK.schedule } }),
+  )
+  return (Item as ScheduleConfig | undefined) ?? null
 }
 
-// Used by both app/api/schedule/route.ts (to list/create/update a schedule)
-// and the hourly notify sweep (to find who is due this hour).
+// Replaces the old schedule entirely: writes the canonical SCHEDULE item
+// plus one SCHEDULE#<hour> marker per selected hour (gsi1pk=HOUR#<hour>),
+// and deletes any marker from a previous call that is no longer selected.
+// One transaction, so a save can never leave a stale marker or a missing
+// one — see NewNotamsStack.createTable's doc comment for why this
+// write-side fan-out exists (it is what lets getSchedulesDueAt below be a
+// single Query instead of the old smembers + N gets).
+export async function putSchedule(config: ScheduleConfig): Promise<void> {
+  const previous = await getSchedule(config.userId)
+  const previousHours = new Set(previous?.notifyHours ?? [])
+  const nextHours = new Set(config.notifyHours)
+
+  const items: TransactItem[] = [
+    {
+      Put: {
+        TableName: tableName(),
+        Item: { pk: userPk(config.userId), sk: SK.schedule, ...config },
+      },
+    },
+  ]
+
+  for (const hour of nextHours) {
+    items.push({
+      Put: {
+        TableName: tableName(),
+        Item: {
+          pk: userPk(config.userId),
+          sk: scheduleHourSk(hour),
+          gsi1pk: scheduleHourGsiPk(hour),
+          gsi1sk: userPk(config.userId),
+          ...config,
+        },
+      },
+    })
+  }
+  for (const hour of previousHours) {
+    if (!nextHours.has(hour)) {
+      items.push({
+        Delete: {
+          TableName: tableName(),
+          Key: { pk: userPk(config.userId), sk: scheduleHourSk(hour) },
+        },
+      })
+    }
+  }
+
+  // DynamoDB's TransactWriteItems caps at 100 items; notifyHours maxes out
+  // at 24 (one per UTC hour), so 1 canonical + up to 24 markers + up to 24
+  // deletes never approaches that limit.
+  await getDb().send(new TransactWriteCommand({ TransactItems: items }))
+}
+
+export async function deleteSchedule(userId: string): Promise<void> {
+  const existing = await getSchedule(userId)
+  if (!existing) return
+
+  const items = [
+    { Delete: { TableName: tableName(), Key: { pk: userPk(userId), sk: SK.schedule } } },
+    ...existing.notifyHours.map((hour) => ({
+      Delete: {
+        TableName: tableName(),
+        Key: { pk: userPk(userId), sk: scheduleHourSk(hour) },
+      },
+    })),
+  ]
+  await getDb().send(new TransactWriteCommand({ TransactItems: items }))
+}
+
+// Used by the hourly notify sweep to find who is due this hour. A single
+// Query against gsi1 — see NewNotamsStack.createTable's doc comment for why
+// this replaced the old smembers + N gets fan-out.
 export async function getSchedulesDueAt(utcHour: number): Promise<ScheduleConfig[]> {
-  const userIds = await getKv().smembers<string[]>(SCHEDULE_USER_IDS_KEY)
-  if (!userIds?.length) return []
-
-  const configs = await Promise.all(
-    userIds.map(userId => getKv().get<ScheduleConfig>(scheduleKey(userId)))
+  const { Items } = await getDb().send(
+    new QueryCommand({
+      TableName: tableName(),
+      IndexName: SCHEDULE_HOUR_INDEX,
+      KeyConditionExpression: "gsi1pk = :hour",
+      ExpressionAttributeValues: { ":hour": scheduleHourGsiPk(utcHour) },
+    }),
   )
-
-  return configs.filter(
-    (c): c is ScheduleConfig => c !== null && c.notifyHours.includes(utcHour)
-  )
+  return (Items ?? []) as ScheduleConfig[]
 }
 
 interface NavCanadaItem {

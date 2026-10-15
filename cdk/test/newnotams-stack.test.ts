@@ -132,16 +132,19 @@ describe("least privilege (the point of this file)", () => {
     expect(rendered).not.toContain(":parameter/*");
   });
 
-  test("the notify job reads only the kv and push parameters — never the auth ones", () => {
+  test("the notify job reads only the push parameters — never kv or the auth ones (Phase 2: schedules/push moved to DynamoDB)", () => {
     const reads = statementsWithAction("NotifyServiceRole", "ssm:GetParameter");
     expect(reads).toHaveLength(1);
 
     const rendered = JSON.stringify(resourcesOf(reads[0] as Record<string, unknown>));
-    expect(rendered).toContain(newNotamsParameterNames.kvUrl);
-    expect(rendered).toContain(newNotamsParameterNames.kvToken);
     expect(rendered).toContain(newNotamsParameterNames.vapidPublicKey);
     expect(rendered).toContain(newNotamsParameterNames.vapidPrivateKey);
     expect(rendered).toContain(newNotamsParameterNames.vapidSubject);
+    // Phase 2: the notify sweep's schedule lookup and push-subscription
+    // storage both moved to the DynamoDB table (see "DynamoDB table"
+    // describe block below) — it no longer talks to Upstash at all.
+    expect(rendered).not.toContain(newNotamsParameterNames.kvUrl);
+    expect(rendered).not.toContain(newNotamsParameterNames.kvToken);
     // The notify sweep never signs anyone in — it has no business reading
     // Auth.js's secrets at all.
     expect(rendered).not.toContain(newNotamsParameterNames.googleClientId);
@@ -258,6 +261,59 @@ describe("notify failure alarm (Phase 1 action plan §5)", () => {
 
   test("has no email subscription when alertEmail is omitted — an alarm with no subscriber is silent, but synth should not require a real inbox", () => {
     template.resourceCountIs("AWS::SNS::Subscription", 0);
+  });
+});
+
+describe("DynamoDB table (Phase 2: migrated off Upstash Redis)", () => {
+  test("has the expected single-table key schema and gsi1 for the hourly sweep", () => {
+    template.hasResourceProperties("AWS::DynamoDB::GlobalTable", {
+      KeySchema: Match.arrayWith([
+        { AttributeName: "pk", KeyType: "HASH" },
+        { AttributeName: "sk", KeyType: "RANGE" },
+      ]),
+      Replicas: Match.arrayWith([
+        Match.objectLike({
+          GlobalSecondaryIndexes: Match.arrayWith([
+            Match.objectLike({ IndexName: "gsi1" }),
+          ]),
+        }),
+      ]),
+    });
+  });
+
+  test("prod enables point-in-time recovery (exit criterion: PITR + restore drill)", () => {
+    template.hasResourceProperties("AWS::DynamoDB::GlobalTable", {
+      Replicas: Match.arrayWith([
+        Match.objectLike({
+          PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
+        }),
+      ]),
+    });
+  });
+
+  test("prod retains the table", () => {
+    template.hasResource("AWS::DynamoDB::GlobalTable", { DeletionPolicy: "Retain" });
+  });
+
+  test("on-demand billing — no provisioned capacity to size for a sweep that scales with user count, not traffic", () => {
+    template.hasResourceProperties("AWS::DynamoDB::GlobalTable", {
+      BillingMode: "PAY_PER_REQUEST",
+    });
+  });
+
+  test("both the server function and the notify job can read/write it, and know its name", () => {
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({ NEWNOTAMS_TABLE_NAME: Match.anyValue() }),
+      }),
+    });
+
+    for (const prefix of ["ServerFunctionRole", "NotifyServiceRole"]) {
+      const reads = statementsWithAction(prefix, "dynamodb:GetItem");
+      expect(reads.length).toBeGreaterThan(0);
+      const writes = statementsWithAction(prefix, "dynamodb:PutItem");
+      expect(writes.length).toBeGreaterThan(0);
+    }
   });
 });
 

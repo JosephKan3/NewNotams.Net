@@ -1,14 +1,23 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
-import { getKv } from "@/lib/kv"
+import { getDb, tableName, userPk, SK } from "@/lib/db"
+import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb"
 import type { SavedSearch } from "@/lib/saved-searches"
 
-function searchesKey(userId: string) {
-  return `searches:${userId}`
+async function loadSearches(userId: string): Promise<SavedSearch[]> {
+  const { Item } = await getDb().send(
+    new GetCommand({ TableName: tableName(), Key: { pk: userPk(userId), sk: SK.searches } }),
+  )
+  return (Item as { items?: SavedSearch[] } | undefined)?.items ?? []
 }
 
-async function loadSearches(userId: string): Promise<SavedSearch[]> {
-  return (await getKv().get<SavedSearch[]>(searchesKey(userId))) ?? []
+async function saveSearches(userId: string, searches: SavedSearch[]): Promise<void> {
+  await getDb().send(
+    new PutCommand({
+      TableName: tableName(),
+      Item: { pk: userPk(userId), sk: SK.searches, items: searches },
+    }),
+  )
 }
 
 export async function GET() {
@@ -41,7 +50,7 @@ export async function POST(request: Request) {
 
   const existing = await loadSearches(session.user.id)
   const updated = [...existing.filter((s) => s.id !== search.id), search]
-  await getKv().set(searchesKey(session.user.id), updated)
+  await saveSearches(session.user.id, updated)
   return NextResponse.json({ ok: true, search })
 }
 
@@ -58,6 +67,6 @@ export async function DELETE(request: Request) {
 
   const existing = await loadSearches(session.user.id)
   const updated = existing.filter((s) => s.id !== id)
-  await getKv().set(searchesKey(session.user.id), updated)
+  await saveSearches(session.user.id, updated)
   return NextResponse.json({ ok: true })
 }

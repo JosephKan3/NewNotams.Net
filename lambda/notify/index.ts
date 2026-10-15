@@ -15,15 +15,21 @@
  * the problem entirely rather than growing the shared construct a prop only
  * this one caller needs.
  *
- * KV_REST_API_URL/TOKEN and the VAPID_* env vars are read directly from
- * `process.env` by lib/kv.ts and lib/push.ts respectively — NewNotamsStack
- * (CDK side) populates them from SSM at deploy time via the Lambda's
- * `environment`, the same way personal-site's oanda-fetcher gets its
- * environment variables rather than calling SSM itself at runtime for
- * these particular values. (Unlike oanda-fetcher, these are read once into
- * Lambda environment variables by CDK/CloudFormation's own SSM dynamic
- * reference resolution at deploy time, not fetched by the handler on every
- * cold start — see NewNotamsStack's comment on why.)
+ * The VAPID_* env vars are read directly from `process.env` by lib/push.ts
+ * — NewNotamsStack (CDK side) populates them from SSM at deploy time via
+ * the Lambda's `environment`, the same way personal-site's oanda-fetcher
+ * gets its environment variables rather than calling SSM itself at runtime
+ * for these particular values. (Unlike oanda-fetcher, these are read once
+ * into Lambda environment variables by CDK/CloudFormation's own SSM
+ * dynamic reference resolution at deploy time, not fetched by the handler
+ * on every cold start — see NewNotamsStack's comment on why.)
+ *
+ * NEWNOTAMS_TABLE_NAME (read by lib/db.ts) is set the same way, pointing
+ * at the DynamoDB table NewNotamsStack.createTable provisions — schedules,
+ * push subscriptions, and everything else user-owned moved off Upstash
+ * Redis here (Phase 2). KV_REST_API_URL/TOKEN remain in the server
+ * function's environment only (lib/rate-limit.ts's /api/weather limiter is
+ * the one thing still on Upstash); this Lambda no longer needs them.
  */
 
 import { buildNotification, getSchedulesDueAt } from "../../lib/notify";

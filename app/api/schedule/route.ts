@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
-import { getKv } from "@/lib/kv"
-import { SCHEDULE_USER_IDS_KEY, getSchedulesDueAt, scheduleKey } from "@/lib/notify"
+import { deleteSchedule, getSchedule, getSchedulesDueAt, putSchedule } from "@/lib/notify"
 import type { ScheduleConfig } from "@/lib/notify"
 
 // Re-exported for backward compatibility with any existing import of
@@ -19,11 +18,11 @@ export async function GET() {
   }
 
   try {
-    const config = await getKv().get<ScheduleConfig>(scheduleKey(session.user.id))
+    const config = await getSchedule(session.user.id)
     if (!config) return NextResponse.json({ error: "Schedule not found" }, { status: 404 })
     return NextResponse.json(config)
   } catch {
-    return NextResponse.json({ error: "KV unavailable" }, { status: 503 })
+    return NextResponse.json({ error: "Database unavailable" }, { status: 503 })
   }
 }
 
@@ -60,11 +59,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    await getKv().set(scheduleKey(session.user.id), config)
-    await getKv().sadd(SCHEDULE_USER_IDS_KEY, session.user.id)
+    await putSchedule(config)
     return NextResponse.json({ ok: true })
   } catch {
-    return NextResponse.json({ error: "KV unavailable — scheduled notifications require Vercel KV to be configured" }, { status: 503 })
+    return NextResponse.json({ error: "Database unavailable — scheduled notifications could not be saved" }, { status: 503 })
   }
 }
 
@@ -83,12 +81,12 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const existing = await getKv().get<ScheduleConfig>(scheduleKey(session.user.id))
+    const existing = await getSchedule(session.user.id)
     if (!existing) return NextResponse.json({ error: "Schedule not found" }, { status: 404 })
-    await getKv().set(scheduleKey(session.user.id), { ...existing, dismissedIds: body.dismissedIds ?? [] })
+    await putSchedule({ ...existing, dismissedIds: body.dismissedIds ?? [] })
     return NextResponse.json({ ok: true })
   } catch {
-    return NextResponse.json({ error: "KV unavailable" }, { status: 503 })
+    return NextResponse.json({ error: "Database unavailable" }, { status: 503 })
   }
 }
 
@@ -100,10 +98,9 @@ export async function DELETE() {
   }
 
   try {
-    await getKv().del(scheduleKey(session.user.id))
-    await getKv().srem(SCHEDULE_USER_IDS_KEY, session.user.id)
+    await deleteSchedule(session.user.id)
     return NextResponse.json({ ok: true })
   } catch {
-    return NextResponse.json({ error: "KV unavailable" }, { status: 503 })
+    return NextResponse.json({ error: "Database unavailable" }, { status: 503 })
   }
 }

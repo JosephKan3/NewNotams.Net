@@ -27,17 +27,18 @@
  * never a request.
  */
 
-import { CfnOutput, Duration, Fn, Stack } from "aws-cdk-lib";
+import { CfnOutput, Duration, Fn, RemovalPolicy, Stack } from "aws-cdk-lib";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
+import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as snsSubscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import { DEFAULT_OWNER, applyPlatformTags, domains, profileFor, ssmPaths } from "@josephkan3/config";
-import { OpenNextSite, ScheduledJob, suppressNagRules } from "@josephkan3/constructs";
+import { OpenNextSite, ScheduledJob, flattenForNagId, suppressNagRules } from "@josephkan3/constructs";
 import * as path from "node:path";
 import type { Env, EnvProfile } from "@josephkan3/config";
 import type { StackProps } from "aws-cdk-lib";
@@ -45,6 +46,13 @@ import type { Construct } from "constructs";
 
 /** The application name, used for tags and the SSM parameter namespace. */
 export const APP_NAME = "newnotams";
+
+/**
+ * Logical name of the GSI the notify sweep queries by notify-hour. Exported
+ * so `lib/notify.ts` (which runs in the Lambda, not CDK) can name it in a
+ * `QueryCommand` without the two sides drifting on a string literal.
+ */
+export const SCHEDULE_HOUR_INDEX = "gsi1";
 
 /**
  * How often the notify sweep runs. Matches the hour-granularity schedule
@@ -154,12 +162,15 @@ export class NewNotamsStack extends Stack {
   readonly distribution: cloudfront.Distribution;
   readonly notifyJob: ScheduledJob;
   readonly alertTopic: sns.Topic;
+  readonly table: dynamodb.TableV2;
 
   constructor(scope: Construct, id: string, props: NewNotamsStackProps) {
     super(scope, id, props);
 
     const profile = profileFor(props.envName);
     const repoRootPath = props.repoRootPath ?? defaultRepoRootPath();
+
+    this.table = this.createTable(profile.removalPolicy, profile.pointInTimeRecovery);
 
     this.site = new OpenNextSite(this, "Site", {
       domainNames: [domains.product, `www.${domains.product}`],
@@ -188,6 +199,7 @@ export class NewNotamsStack extends Stack {
       props.usePlaceholderSource === true,
     );
     this.grantNotifyJobSecrets(this.notifyJob);
+    this.grantTableAccess();
 
     this.alertTopic = this.createNotifyFailureAlarm(this.notifyJob, props.alertEmail);
 
@@ -198,6 +210,89 @@ export class NewNotamsStack extends Stack {
       description:
         "Pass this to home-platform's newnotams.net DnsStack as -c cloudFrontDomainName=... for the apex cutover.",
     });
+    new CfnOutput(this, "TableName", {
+      value: this.table.tableName,
+      description: "DynamoDB table name — pass to the one-time Upstash migration script.",
+    });
+  }
+
+  /**
+   * Single-table design (Phase 2 action plan, Upstash → DynamoDB
+   * migration): one table for users, saved searches, dismissals, push
+   * subscriptions, and schedules. See the migration plan's own doc for the
+   * item-shape rationale; the short version is PK=`USER#<id>` for every
+   * per-user item (`SK` distinguishes PROFILE/SEARCHES/DISMISSALS/
+   * PUSH_SUBS/SCHEDULE), plus a standalone `EMAIL#<email>` item for the
+   * email→id lookup Auth.js needs before it has a user id at all.
+   *
+   * `gsi1` exists for exactly one query: "every schedule due this UTC
+   * hour," replacing `lib/notify.ts`'s old `smembers` + N `get`s fan-out.
+   * Saving a schedule writes one `SCHEDULE#<hour>` marker item per selected
+   * hour (`gsi1pk = HOUR#<hour>`) alongside the canonical `SCHEDULE` item,
+   * so the sweep is a single `Query` against `gsi1` regardless of user
+   * count — the fan-out moves to the rare write path (saving/deleting a
+   * schedule) from the hourly-forever read path, which is the right side
+   * for it to live on.
+   */
+  private createTable(removalPolicy: RemovalPolicy, pointInTimeRecovery: boolean): dynamodb.TableV2 {
+    return new dynamodb.TableV2(this, "Table", {
+      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: pointInTimeRecovery },
+      billing: dynamodb.Billing.onDemand(),
+      globalSecondaryIndexes: [
+        {
+          indexName: SCHEDULE_HOUR_INDEX,
+          partitionKey: { name: "gsi1pk", type: dynamodb.AttributeType.STRING },
+          sortKey: { name: "gsi1sk", type: dynamodb.AttributeType.STRING },
+          // KEYS_ONLY would not carry the schedule's actual payload
+          // (savedQuery, dismissedIds, filterDismissed) into the query
+          // result — the sweep would still need a second GetItem per
+          // match, reintroducing exactly the fan-out this index exists to
+          // remove. ALL costs more in storage (negligible at this item
+          // size and count) in exchange for the sweep being one Query,
+          // full stop.
+          projectionType: dynamodb.ProjectionType.ALL,
+        },
+      ],
+      removalPolicy,
+    });
+  }
+
+  /**
+   * Both the server function (saved searches, dismissals, push-subscribe,
+   * schedule CRUD, sign-in/sign-up) and the notify job (schedule lookup via
+   * `gsi1`, reading/pruning push subscriptions) read and write this table
+   * directly — unlike the SSM parameters, there is no narrower per-caller
+   * split available, since both legitimately touch overlapping item types
+   * (both read `SCHEDULE`/`PUSH_SUBS` items, for different reasons).
+   */
+  private grantTableAccess(): void {
+    this.table.grantReadWriteData(this.site.serverFunction);
+    this.table.grantReadWriteData(this.notifyJob.fn);
+    this.site.serverFunction.addEnvironment("NEWNOTAMS_TABLE_NAME", this.table.tableName);
+    this.notifyJob.fn.addEnvironment("NEWNOTAMS_TABLE_NAME", this.table.tableName);
+
+    // ITableV2.grantReadWriteData widens to the table plus every GSI's index
+    // ARN with a wildcard, since which index a query hits is a runtime
+    // decision the grant cannot narrow at synth — the exact same tradeoff
+    // OpenNextSite.grantServerPermissions documents and suppresses for its
+    // own tagCacheTable (there is no finer-grained L2 grant method,
+    // ADR-0007 in home-platform). Both roles that call grantReadWriteData
+    // above need the identical suppression.
+    for (const [role, idPrefix] of [
+      [this.site.serverFunction.role!, "ServerFunction"],
+      [this.notifyJob.role, "Notify"],
+    ] as const) {
+      suppressNagRules(role, [
+        {
+          id: `AwsSolutions-IAM5[Resource::${flattenForNagId(this, this.table.tableArn)}/index/*]`,
+          reason:
+            `${idPrefix}: ITableV2.grantReadWriteData widens to every GSI's index ARN with a ` +
+            "wildcard; see OpenNextSite.grantServerPermissions's identical comment and ADR-0007.",
+        },
+      ]);
+    }
   }
 
   /**
@@ -350,16 +445,12 @@ export class NewNotamsStack extends Stack {
       description: "Hourly NOTAM notification sweep — direct invoke, no public endpoint.",
       scheduleDescription: "Hourly NewNotams notify sweep. Not real-time; matches notifyHours.",
       // See grantServerSecrets's comment for the full account of why these
-      // are String parameters, not SecureString.
+      // are String parameters, not SecureString. KV_REST_API_URL/TOKEN are
+      // deliberately absent here (Phase 2): the notify sweep's schedule
+      // lookup and push-subscription storage both moved to the table
+      // grantTableAccess wires up below — this Lambda has no remaining
+      // reason to talk to Upstash at all.
       environment: {
-        KV_REST_API_URL: ssm.StringParameter.valueForStringParameter(
-          this,
-          newNotamsParameterNames.kvUrl,
-        ),
-        KV_REST_API_TOKEN: ssm.StringParameter.valueForStringParameter(
-          this,
-          newNotamsParameterNames.kvToken,
-        ),
         NEXT_PUBLIC_VAPID_PUBLIC_KEY: ssm.StringParameter.valueForStringParameter(
           this,
           newNotamsParameterNames.vapidPublicKey,
@@ -378,8 +469,6 @@ export class NewNotamsStack extends Stack {
 
   private grantNotifyJobSecrets(job: ScheduledJob): void {
     this.grantSsmRead(job.role, "Notify", [
-      newNotamsParameterNames.kvUrl,
-      newNotamsParameterNames.kvToken,
       newNotamsParameterNames.vapidPublicKey,
       newNotamsParameterNames.vapidPrivateKey,
       newNotamsParameterNames.vapidSubject,

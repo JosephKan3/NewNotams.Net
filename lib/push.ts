@@ -1,5 +1,6 @@
 import webpush from "web-push"
-import { getKv } from "@/lib/kv"
+import { getDb, tableName, userPk, SK } from "@/lib/db"
+import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb"
 
 export interface PushSubscriptionData {
   endpoint: string
@@ -28,24 +29,32 @@ function ensureConfigured() {
   configured = true
 }
 
-function subsKey(userId: string) {
-  return `push_subs:${userId}`
+export async function getPushSubscriptions(userId: string): Promise<PushSubscriptionData[]> {
+  const { Item } = await getDb().send(
+    new GetCommand({ TableName: tableName(), Key: { pk: userPk(userId), sk: SK.pushSubs } }),
+  )
+  return (Item as { subs?: PushSubscriptionData[] } | undefined)?.subs ?? []
 }
 
-export async function getPushSubscriptions(userId: string): Promise<PushSubscriptionData[]> {
-  return (await getKv().get<PushSubscriptionData[]>(subsKey(userId))) ?? []
+async function putPushSubscriptions(userId: string, subs: PushSubscriptionData[]): Promise<void> {
+  await getDb().send(
+    new PutCommand({
+      TableName: tableName(),
+      Item: { pk: userPk(userId), sk: SK.pushSubs, subs },
+    }),
+  )
 }
 
 export async function addPushSubscription(userId: string, sub: PushSubscriptionData): Promise<void> {
   const existing = await getPushSubscriptions(userId)
   const filtered = existing.filter((s) => s.endpoint !== sub.endpoint)
   filtered.push(sub)
-  await getKv().set(subsKey(userId), filtered)
+  await putPushSubscriptions(userId, filtered)
 }
 
 export async function removePushSubscription(userId: string, endpoint: string): Promise<void> {
   const existing = await getPushSubscriptions(userId)
-  await getKv().set(subsKey(userId), existing.filter((s) => s.endpoint !== endpoint))
+  await putPushSubscriptions(userId, existing.filter((s) => s.endpoint !== endpoint))
 }
 
 // Sends a push notification, returning whether the subscription is expired/invalid
@@ -83,7 +92,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
 
   if (expired.length > 0) {
     const remaining = subs.filter((s) => !expired.includes(s.endpoint))
-    await getKv().set(subsKey(userId), remaining)
+    await putPushSubscriptions(userId, remaining)
   }
 
   return sent
